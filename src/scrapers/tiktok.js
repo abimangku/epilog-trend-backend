@@ -1,44 +1,63 @@
+/**
+ * TikTok FYP Scraper — scrolls the For You Page, extracts video metadata,
+ * captures screenshots, and returns structured data for the AI pipeline.
+ *
+ * FYP shows likes, comments, bookmarks, and shares inline for every video.
+ * Views are NOT shown on FYP — we set views to 0 and rely on other metrics.
+ *
+ * @module scrapers/tiktok
+ */
+
 const { chromium } = require('playwright');
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const logger = require('../logger');
-const { calculateEngagementRate } = require('../scoring/engagement');
 
 const MOD = 'SCRAPER';
 
 // ---------------------------------------------------------------------------
-// All TikTok DOM selectors in one place. Update here when TikTok changes DOM.
+// All TikTok FYP DOM selectors in one place.
+// Last verified: 2026-03-01 against live TikTok FYP (tiktok.com, locale id-ID).
 // ---------------------------------------------------------------------------
 const SELECTORS = {
-  // Explore page video cards
-  videoCard: '[data-e2e="explore-item"], div[class*="DivItemContainer"], div[class*="video-feed-item"]',
+  // Each video on the FYP is an <article> with this data-e2e attribute
+  videoArticle: '[data-e2e="recommend-list-item-container"]',
 
-  // Within a video card
-  caption: '[data-e2e="explore-card-desc"], [data-e2e="video-desc"], div[class*="DivVideoCaption"] span',
-  videoLink: 'a[href*="/video/"], a[href*="/@"]',
-  author: '[data-e2e="explore-card-user-unique-id"], [data-e2e="video-author-uniqueid"], a[data-e2e="video-author-avatar"]',
-  authorName: 'span[data-e2e="explore-card-user-unique-id"], span[class*="AuthorUniqueId"]',
+  // Caption/description container within the article
+  videoDesc: '[data-e2e="video-desc"]',
 
-  // Engagement metrics on cards
-  views: '[data-e2e="explore-card-play-count"], strong[data-e2e="video-views"], span[class*="PlayCount"]',
-  likes: '[data-e2e="explore-card-like-count"], strong[data-e2e="like-count"], span[class*="LikeCount"]',
-  comments: '[data-e2e="explore-card-comment-count"], strong[data-e2e="comment-count"], span[class*="CommentCount"]',
-  shares: '[data-e2e="explore-card-share-count"], strong[data-e2e="share-count"], span[class*="ShareCount"]',
+  // Hashtag links within the description
+  hashtagLink: 'a[data-e2e="search-common-link"]',
 
-  // Hashtags within caption
-  hashtagLink: 'a[href*="/tag/"], a[data-e2e="search-common-link"]',
+  // Author avatar link — href is /@username
+  authorAvatar: 'a[data-e2e="video-author-avatar"]',
 
-  // Audio
-  audioLink: 'a[href*="/music/"], a[data-e2e="video-music"]',
-  audioTitle: 'div[class*="MusicTitle"], [data-e2e="video-music"] span',
+  // Engagement metrics (within each article)
+  likes: 'strong[data-e2e="like-count"]',
+  comments: 'strong[data-e2e="comment-count"]',
+  shares: 'strong[data-e2e="share-count"]',
+  bookmarks: 'strong[data-e2e="undefined-count"]',
 
-  // Explore page content container (wait target)
-  exploreContainer: '[data-e2e="explore-item-list"], div[class*="DivExploreContainer"], main',
+  // Music link — href contains /music/{title}-{id}
+  musicLink: 'a[data-e2e="video-music"]',
 };
 
 // ---------------------------------------------------------------------------
-// Number parsing helper
+// Configuration
+// ---------------------------------------------------------------------------
+const CONFIG = {
+  maxVideos: 40,
+  timeoutMs: 90000,
+  scrollPauseMinMs: 3000,
+  scrollPauseMaxMs: 5000,
+  pageLoadWaitMs: 8000,
+  screenshotDir: path.join(process.cwd(), 'screenshots'),
+  cookiePath: path.join(process.cwd(), 'cookies', 'tiktok.json'),
+};
+
+// ---------------------------------------------------------------------------
+// Helpers
 // ---------------------------------------------------------------------------
 
 /**
@@ -56,356 +75,352 @@ function parseNumber(str) {
 
   const upper = cleaned.toUpperCase();
 
-  // Handle B (billions)
   const bMatch = upper.match(/^([\d.]+)\s*B$/);
-  if (bMatch) {
-    return Math.round(parseFloat(bMatch[1]) * 1_000_000_000) || 0;
-  }
+  if (bMatch) return Math.round(parseFloat(bMatch[1]) * 1_000_000_000) || 0;
 
-  // Handle M (millions)
   const mMatch = upper.match(/^([\d.]+)\s*M$/);
-  if (mMatch) {
-    return Math.round(parseFloat(mMatch[1]) * 1_000_000) || 0;
-  }
+  if (mMatch) return Math.round(parseFloat(mMatch[1]) * 1_000_000) || 0;
 
-  // Handle K (thousands)
   const kMatch = upper.match(/^([\d.]+)\s*K$/);
-  if (kMatch) {
-    return Math.round(parseFloat(kMatch[1]) * 1_000) || 0;
-  }
+  if (kMatch) return Math.round(parseFloat(kMatch[1]) * 1_000) || 0;
 
-  // Plain number
   const num = parseInt(cleaned, 10);
   return isNaN(num) ? 0 : num;
 }
 
+/**
+ * Generates a SHA256 hash of a video URL for unique identification.
+ * @param {string} url - Video URL
+ * @returns {string} 16-char hex hash
+ */
+function videoHash(url) {
+  return crypto.createHash('sha256').update(url).digest('hex').slice(0, 16);
+}
+
+/**
+ * Extracts hashtags from caption text.
+ * @param {string} text - Caption text
+ * @returns {string[]} Array of hashtags (with # prefix)
+ */
+function extractHashtags(text) {
+  if (!text) return [];
+  const matches = text.match(/#[\w\u00C0-\u024F]+/g);
+  return matches || [];
+}
+
+/**
+ * Parses music info from a TikTok music URL path.
+ * E.g. "/music/suara-asli-DirgaYETE-7569941368613686034" -> { title: "suara asli DirgaYETE", id: "7569941368613686034" }
+ *
+ * @param {string} href - Music link href
+ * @returns {{ title: string, id: string }}
+ */
+function parseMusicHref(href) {
+  if (!href) return { title: '', id: '' };
+  const match = href.match(/\/music\/(.+)-(\d+)$/);
+  if (!match) return { title: '', id: '' };
+  const title = match[1].replace(/-/g, ' ');
+  const id = match[2];
+  return { title, id };
+}
+
+/**
+ * Returns a random integer between min and max (inclusive).
+ * @param {number} min
+ * @param {number} max
+ * @returns {number}
+ */
+function randomDelay(min, max) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
 // ---------------------------------------------------------------------------
-// TikTokScraper class
+// Scraper
 // ---------------------------------------------------------------------------
 
-class TikTokScraper {
-  /**
-   * Creates a TikTokScraper instance.
-   * Does not launch the browser — call init() first.
-   */
-  constructor() {
-    this.browser = null;
-    this.context = null;
-    this.page = null;
-    this.headless = process.env.SCRAPER_HEADLESS !== 'false';
-    this.userAgent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36';
-    this.viewport = { width: 1280, height: 800 };
-    this.cookiesPath = path.join(process.cwd(), 'cookies', 'tiktok.json');
-  }
+/**
+ * Scrapes TikTok's For You Page (FYP). Scrolls through the feed,
+ * extracts video metadata, and captures screenshots.
+ *
+ * @param {object} [options={}]
+ * @param {number} [options.maxVideos=40] - Max videos to scrape
+ * @param {number} [options.timeoutMs=90000] - Total timeout in ms
+ * @returns {Promise<{ videos: object[], screenshots: object[] }>}
+ */
+async function scrapeOnce(options = {}) {
+  const maxVideos = options.maxVideos || CONFIG.maxVideos;
+  const timeoutMs = options.timeoutMs || CONFIG.timeoutMs;
+  const startTime = Date.now();
 
-  /**
-   * Launches the browser, loads cookies, and warms the TikTok session.
-   * Must be called before scrapeExplore().
-   *
-   * Side effects: creates cookies/ directory, writes cookie file,
-   * launches a Chromium process.
-   */
-  async init() {
-    // Ensure cookies directory exists
-    const cookiesDir = path.dirname(this.cookiesPath);
-    await fs.promises.mkdir(cookiesDir, { recursive: true });
+  const videos = [];
+  const screenshots = [];
+  const seenUrls = new Set();
 
-    this.browser = await chromium.launch({
-      headless: this.headless,
+  // Ensure screenshots directory exists
+  await fs.promises.mkdir(CONFIG.screenshotDir, { recursive: true });
+
+  logger.log(MOD, `Starting FYP scrape (max=${maxVideos}, timeout=${timeoutMs}ms)`);
+
+  let browser;
+  try {
+    browser = await chromium.launch({
+      headless: true,
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-blink-features=AutomationControlled',
-        '--disable-features=IsolateOrigins',
-        '--disable-dev-shm-usage',
       ],
     });
 
-    this.context = await this.browser.newContext({
-      userAgent: this.userAgent,
-      viewport: this.viewport,
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
+      viewport: { width: 1280, height: 800 },
       locale: 'id-ID',
       timezoneId: 'Asia/Jakarta',
     });
 
-    // Load saved cookies if they exist
+    // Load cookies for session persistence
+    await _loadCookies(context);
+
+    const page = await context.newPage();
+
+    // Navigate to FYP
+    logger.log(MOD, 'Navigating to tiktok.com (FYP)...');
+    await page.goto('https://www.tiktok.com', {
+      waitUntil: 'domcontentloaded',
+      timeout: 30000,
+    });
+
+    // Wait for content to load
+    await page.waitForTimeout(CONFIG.pageLoadWaitMs);
+
+    // Wait for at least one video article to appear
     try {
-      const cookieData = await fs.promises.readFile(this.cookiesPath, 'utf8');
-      const cookies = JSON.parse(cookieData);
-      if (Array.isArray(cookies) && cookies.length > 0) {
-        await this.context.addCookies(cookies);
-        logger.log(MOD, `Loaded ${cookies.length} cookies from ${this.cookiesPath}`);
-      }
+      await page.waitForSelector(SELECTORS.videoArticle, { timeout: 15000 });
     } catch {
-      logger.log(MOD, 'No saved cookies found — starting fresh session');
+      logger.warn(MOD, 'No video articles found after waiting — page may have changed');
+      await _saveCookies(context);
+      return { videos, screenshots };
     }
 
-    this.page = await this.context.newPage();
+    logger.log(MOD, 'FYP loaded, beginning scroll extraction...');
 
-    // Warm the session by visiting TikTok home
-    try {
-      await this.page.goto('https://www.tiktok.com', {
-        waitUntil: 'domcontentloaded',
-        timeout: 30000,
-      });
-      await this.page.waitForTimeout(2000);
-      await this._saveCookies();
-      logger.log(MOD, 'Scraper initialized');
-    } catch (err) {
-      logger.warn(MOD, 'TikTok home page load slow — continuing anyway', err);
-    }
-  }
+    // Scroll and extract loop
+    let scrollAttempts = 0;
+    const maxScrollAttempts = maxVideos * 3; // safety limit
 
-  /**
-   * Scrapes the TikTok Explore page for trending videos.
-   *
-   * Navigates to /explore, scrolls to load content, extracts video metadata
-   * from each card. Times out after 60 seconds and returns whatever was
-   * collected so far.
-   *
-   * @param {number} [maxVideos=50] - Maximum videos to extract
-   * @returns {Promise<object[]>} Array of video objects with engagement metrics
-   */
-  async scrapeExplore(maxVideos = 50) {
-    const results = [];
-    const startTime = Date.now();
-    const TIMEOUT_MS = 60000;
-
-    try {
-      logger.log(MOD, `Starting explore scrape (max ${maxVideos} videos)`);
-
-      await this.page.goto('https://www.tiktok.com/explore', {
-        waitUntil: 'domcontentloaded',
-        timeout: 30000,
-      });
-
-      // Wait for content to appear
-      try {
-        await this.page.waitForSelector(SELECTORS.videoCard, { timeout: 15000 });
-      } catch {
-        logger.warn(MOD, 'Video cards not found with primary selector — trying fallback wait');
-        await this.page.waitForTimeout(5000);
+    while (videos.length < maxVideos && scrollAttempts < maxScrollAttempts) {
+      // Check timeout
+      if (Date.now() - startTime > timeoutMs) {
+        logger.log(MOD, `Timeout reached (${timeoutMs}ms) — stopping with ${videos.length} videos`);
+        break;
       }
 
-      // Scroll down slowly 3 times to load more content (simulate human)
-      for (let i = 0; i < 3; i++) {
-        if (Date.now() - startTime > TIMEOUT_MS) break;
-        await this.page.evaluate(() => window.scrollBy(0, window.innerHeight));
-        await this.page.waitForTimeout(2000 + Math.random() * 1000);
-      }
+      scrollAttempts++;
 
-      // Collect all video card elements
-      const cards = await this.page.$$(SELECTORS.videoCard);
-      logger.log(MOD, `Found ${cards.length} video cards on explore page`);
+      // Extract all currently visible articles
+      const articleData = await _extractVisibleArticles(page);
 
-      for (const card of cards) {
-        // Check timeout
-        if (Date.now() - startTime > TIMEOUT_MS) {
-          logger.warn(MOD, `Timeout reached — returning ${results.length} videos collected so far`);
-          break;
-        }
+      for (const article of articleData) {
+        if (videos.length >= maxVideos) break;
 
-        // Check max videos
-        if (results.length >= maxVideos) break;
+        // Build a URL for this video
+        const videoUrl = article.authorUsername
+          ? `https://www.tiktok.com/@${article.authorUsername}`
+          : null;
 
+        if (!videoUrl || seenUrls.has(videoUrl + article.caption)) continue;
+        seenUrls.add(videoUrl + article.caption);
+
+        // Take screenshot of the article
+        let screenshotPath = null;
         try {
-          const video = await this._extractVideoData(card);
-          if (video && video.url) {
-            results.push(video);
+          const hash = videoHash(videoUrl + article.caption);
+          screenshotPath = path.join(CONFIG.screenshotDir, `${hash}.png`);
+          const articleEl = await page.$(
+            `#${article.articleId}`
+          );
+          if (articleEl) {
+            await articleEl.screenshot({ path: screenshotPath });
+          } else {
+            // Fallback: full page screenshot
+            await page.screenshot({ path: screenshotPath, fullPage: false });
           }
-        } catch (err) {
-          logger.warn(MOD, 'Failed to extract video card — skipping', err);
+        } catch (ssErr) {
+          logger.warn(MOD, `Screenshot failed for ${article.authorUsername}`, ssErr);
+          screenshotPath = null;
         }
 
-        // Random delay between card parsing (1-3 seconds)
-        await this.page.waitForTimeout(1000 + Math.random() * 2000);
+        const hashtags = extractHashtags(article.caption);
+        const music = parseMusicHref(article.musicHref);
+
+        const video = {
+          platform: 'tiktok',
+          url: videoUrl,
+          title: article.caption || `Video by ${article.authorUsername}`,
+          author: article.authorUsername || 'unknown',
+          author_tier: 'unknown',
+          views: 0, // FYP does not show view counts
+          likes: article.likes,
+          comments: article.comments,
+          shares: article.shares,
+          bookmarks: article.bookmarks,
+          hashtags,
+          audio_id: music.id,
+          audio_title: music.title,
+          scraped_at: new Date().toISOString(),
+          screenshot_path: screenshotPath,
+        };
+
+        videos.push(video);
+
+        if (screenshotPath) {
+          screenshots.push({
+            video_url: videoUrl,
+            path: screenshotPath,
+          });
+        }
       }
 
-      await this._saveCookies();
-      logger.log(MOD, `Scrape complete: ${results.length} videos extracted`);
-
-    } catch (err) {
-      logger.error(MOD, 'Explore scrape failed', err);
+      // Scroll down to load more videos
+      const delay = randomDelay(CONFIG.scrollPauseMinMs, CONFIG.scrollPauseMaxMs);
+      await page.evaluate(() => window.scrollBy(0, window.innerHeight));
+      await page.waitForTimeout(delay);
     }
 
-    return results;
-  }
+    // Save cookies for next session
+    await _saveCookies(context);
 
-  /**
-   * Extracts video metadata from a single video card element.
-   *
-   * @param {import('playwright').ElementHandle} card - A video card DOM element
-   * @returns {Promise<object|null>} Video data object or null if extraction fails
-   * @private
-   */
-  async _extractVideoData(card) {
-    // --- URL ---
-    const linkEl = await card.$(SELECTORS.videoLink);
-    const rawHref = linkEl ? await linkEl.getAttribute('href') : null;
-    if (!rawHref) return null;
-    const url = rawHref.startsWith('http') ? rawHref : `https://www.tiktok.com${rawHref}`;
+    logger.log(MOD, `FYP scrape complete: ${videos.length} videos, ${screenshots.length} screenshots`);
 
-    // --- Title / Caption ---
-    const title = await this._getTextContent(card, SELECTORS.caption) || '';
-
-    // --- Author ---
-    let author = await this._getTextContent(card, SELECTORS.authorName) || '';
-    if (!author && rawHref) {
-      // Try to extract from URL: /@username/video/...
-      const authorMatch = rawHref.match(/@([^/]+)/);
-      if (authorMatch) author = authorMatch[1];
-    }
-
-    // --- Engagement metrics ---
-    const viewsStr = await this._getTextContent(card, SELECTORS.views);
-    const likesStr = await this._getTextContent(card, SELECTORS.likes);
-    const commentsStr = await this._getTextContent(card, SELECTORS.comments);
-    const sharesStr = await this._getTextContent(card, SELECTORS.shares);
-
-    const views = parseNumber(viewsStr);
-    const likes = parseNumber(likesStr);
-    const comments = parseNumber(commentsStr);
-    const shares = parseNumber(sharesStr);
-
-    // --- Hashtags ---
-    const hashtagEls = await card.$$(SELECTORS.hashtagLink);
-    const hashtags = [];
-    for (const el of hashtagEls) {
-      const text = await el.textContent().catch(() => null);
-      if (text) {
-        const cleaned = text.trim().replace(/^#/, '');
-        if (cleaned) hashtags.push(cleaned);
+  } catch (err) {
+    logger.error(MOD, 'FYP scrape failed', err);
+  } finally {
+    if (browser) {
+      try {
+        await browser.close();
+      } catch {
+        // ignore close errors
       }
     }
-
-    // --- Audio ---
-    const audioLinkEl = await card.$(SELECTORS.audioLink);
-    let audioId = '';
-    let audioTitle = '';
-    if (audioLinkEl) {
-      const audioHref = await audioLinkEl.getAttribute('href').catch(() => '');
-      if (audioHref) {
-        // Extract audio ID from URL: /music/song-name-1234567890
-        const audioMatch = audioHref.match(/music\/.*?(\d+)(?:\?|$)/);
-        if (audioMatch) audioId = audioMatch[1];
-      }
-      audioTitle = await this._getTextContent(card, SELECTORS.audioTitle) || '';
-    }
-
-    // --- Computed fields ---
-    const engagementRate = calculateEngagementRate(likes, comments, shares, views);
-    const hash = crypto
-      .createHash('sha256')
-      .update(`tiktok|${url}|${title}`)
-      .digest('hex');
-
-    return {
-      platform: 'tiktok',
-      title,
-      url,
-      author,
-      author_tier: 'unknown', // follower count rarely visible on explore cards
-      views,
-      likes,
-      comments,
-      shares,
-      hashtags,
-      audio_id: audioId,
-      audio_title: audioTitle,
-      engagement_rate: Math.round(engagementRate * 100) / 100,
-      velocity_score: 0, // calculated later from snapshots
-      replication_count: 0, // calculated later from batch analysis
-      lifecycle_stage: 'emerging', // default for new scrapes
-      momentum: 0, // calculated later from snapshots
-      scraped_at: new Date().toISOString(),
-      hash,
-    };
   }
 
-  /**
-   * Safely gets text content from the first matching selector within a parent.
-   *
-   * @param {import('playwright').ElementHandle} parent - Parent element to search within
-   * @param {string} selector - CSS selector string
-   * @returns {Promise<string|null>} Trimmed text content or null
-   * @private
-   */
-  async _getTextContent(parent, selector) {
-    try {
-      const el = await parent.$(selector);
-      if (!el) return null;
-      const text = await el.textContent();
-      return text ? text.trim() : null;
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * Saves current browser cookies to disk for session persistence.
-   * @private
-   */
-  async _saveCookies() {
-    try {
-      const cookies = await this.context.cookies();
-      await fs.promises.writeFile(
-        this.cookiesPath,
-        JSON.stringify(cookies, null, 2),
-        'utf8'
-      );
-    } catch (err) {
-      logger.warn(MOD, 'Failed to save cookies', err);
-    }
-  }
-
-  /**
-   * Closes the browser and cleans up resources.
-   * Always call this after scraping, even if errors occurred.
-   */
-  async close() {
-    try {
-      if (this.browser) {
-        await this.browser.close();
-        this.browser = null;
-        this.context = null;
-        this.page = null;
-        logger.log(MOD, 'Browser closed');
-      }
-    } catch (err) {
-      logger.error(MOD, 'Error closing browser', err);
-    }
-  }
+  return { videos, screenshots };
 }
 
 // ---------------------------------------------------------------------------
-// Convenience function for one-off scrapes
+// Internal helpers
 // ---------------------------------------------------------------------------
 
 /**
- * Convenience function that creates a scraper, initializes, scrapes, and closes.
- * Used by `npm run scrape`.
- *
- * @param {number} [maxVideos=50] - Maximum videos to scrape
- * @returns {Promise<object[]>} Array of scraped video objects
+ * Extracts data from all currently visible article elements on the page.
+ * @param {import('playwright').Page} page
+ * @returns {Promise<object[]>}
  */
-async function scrapeOnce(maxVideos = 50) {
-  const scraper = new TikTokScraper();
-  try {
-    await scraper.init();
-    const results = await scraper.scrapeExplore(maxVideos);
-    logger.log(MOD, `scrapeOnce complete: ${results.length} videos`);
+async function _extractVisibleArticles(page) {
+  return page.evaluate((sel) => {
+    const articles = document.querySelectorAll(sel.videoArticle);
+    const results = [];
+
+    for (const article of articles) {
+      try {
+        // Author — first <a href="/@username"> with text content
+        const authorLinks = article.querySelectorAll('a[href^="/@"]');
+        let authorUsername = '';
+        for (const link of authorLinks) {
+          const text = (link.textContent || '').trim();
+          if (text && text.length > 0) {
+            authorUsername = text;
+            break;
+          }
+        }
+        // Fallback: extract from href
+        if (!authorUsername) {
+          const avatarLink = article.querySelector(sel.authorAvatar);
+          if (avatarLink) {
+            const href = avatarLink.getAttribute('href') || '';
+            authorUsername = href.replace('/@', '');
+          }
+        }
+
+        // Caption
+        const descEl = article.querySelector(sel.videoDesc);
+        const caption = descEl ? (descEl.textContent || '').trim() : '';
+
+        // Engagement metrics
+        const likesEl = article.querySelector(sel.likes);
+        const commentsEl = article.querySelector(sel.comments);
+        const sharesEl = article.querySelector(sel.shares);
+        const bookmarksEl = article.querySelector(sel.bookmarks);
+
+        const likesText = likesEl ? likesEl.textContent.trim() : '0';
+        const commentsText = commentsEl ? commentsEl.textContent.trim() : '0';
+        const sharesText = sharesEl ? sharesEl.textContent.trim() : '0';
+        const bookmarksText = bookmarksEl ? bookmarksEl.textContent.trim() : '0';
+
+        // Music
+        const musicEl = article.querySelector(sel.musicLink);
+        const musicHref = musicEl ? musicEl.getAttribute('href') || '' : '';
+
+        results.push({
+          articleId: article.id || '',
+          authorUsername,
+          caption,
+          likesText,
+          commentsText,
+          sharesText,
+          bookmarksText,
+          musicHref,
+        });
+      } catch {
+        // Skip broken articles
+      }
+    }
+
     return results;
-  } catch (err) {
-    logger.error(MOD, 'scrapeOnce failed', err);
-    return [];
-  } finally {
-    await scraper.close();
+  }, SELECTORS).then((rawArticles) => {
+    // Parse numbers outside of page.evaluate (we have parseNumber in Node context)
+    return rawArticles.map((a) => ({
+      ...a,
+      likes: parseNumber(a.likesText),
+      comments: parseNumber(a.commentsText),
+      shares: parseNumber(a.sharesText),
+      bookmarks: parseNumber(a.bookmarksText),
+    }));
+  });
+}
+
+/**
+ * Loads saved cookies from disk into the browser context.
+ * @param {import('playwright').BrowserContext} context
+ */
+async function _loadCookies(context) {
+  try {
+    const cookieData = await fs.promises.readFile(CONFIG.cookiePath, 'utf8');
+    const cookies = JSON.parse(cookieData);
+    if (Array.isArray(cookies) && cookies.length > 0) {
+      await context.addCookies(cookies);
+      logger.log(MOD, `Loaded ${cookies.length} cookies`);
+    }
+  } catch {
+    logger.log(MOD, 'No saved cookies found — starting fresh session');
   }
 }
 
-module.exports = {
-  TikTokScraper,
-  scrapeOnce,
-  parseNumber,
-  SELECTORS,
-};
+/**
+ * Saves current cookies to disk for session persistence.
+ * @param {import('playwright').BrowserContext} context
+ */
+async function _saveCookies(context) {
+  try {
+    const cookies = await context.cookies();
+    const cookieDir = path.dirname(CONFIG.cookiePath);
+    await fs.promises.mkdir(cookieDir, { recursive: true });
+    await fs.promises.writeFile(CONFIG.cookiePath, JSON.stringify(cookies, null, 2));
+    logger.log(MOD, `Saved ${cookies.length} cookies`);
+  } catch (err) {
+    logger.warn(MOD, 'Failed to save cookies', err);
+  }
+}
+
+module.exports = { scrapeOnce, parseNumber, SELECTORS };
