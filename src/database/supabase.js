@@ -242,7 +242,11 @@ async function testConnection() {
 
 /**
  * Upserts a deep analysis row into the 'trend_analysis' table.
- * Uses trend_id as the conflict key — one deep analysis per trend.
+ * One deep analysis per trend — checks for existing row, then updates or inserts.
+ *
+ * Note: Uses check-then-write instead of Supabase .upsert() because the table
+ * has a partial unique index on trend_id (WHERE trend_id IS NOT NULL) which
+ * PostgREST's ON CONFLICT cannot target.
  *
  * @param {string} trendId - UUID of the trend
  * @param {object} analysis - Phase 2 deep analysis data
@@ -250,8 +254,7 @@ async function testConnection() {
  * @throws {Error} If Supabase returns an error
  */
 async function upsertTrendAnalysis(trendId, analysis) {
-  const row = {
-    trend_id: trendId,
+  const fields = {
     analysis_type: analysis.analysis_type || 'deep_analysis',
     summary: analysis.summary,
     key_insights: analysis.key_insights,
@@ -268,18 +271,43 @@ async function upsertTrendAnalysis(trendId, analysis) {
     analyzed_at: new Date().toISOString(),
   };
 
-  const { data, error: upsertError } = await supabase
+  // Check if a deep analysis already exists for this trend
+  const { data: existing } = await supabase
     .from('trend_analysis')
-    .upsert(row, { onConflict: 'trend_id' })
-    .select()
-    .single();
+    .select('id')
+    .eq('trend_id', trendId)
+    .maybeSingle();
 
-  if (upsertError) {
-    logger.error(MOD, `Failed to upsert trend analysis for ${trendId}`, upsertError);
-    throw new Error(`Upsert trend analysis failed: ${upsertError.message}`);
+  let data;
+  let error;
+
+  if (existing) {
+    // Update existing row
+    const result = await supabase
+      .from('trend_analysis')
+      .update(fields)
+      .eq('id', existing.id)
+      .select()
+      .single();
+    data = result.data;
+    error = result.error;
+  } else {
+    // Insert new row
+    const result = await supabase
+      .from('trend_analysis')
+      .insert({ trend_id: trendId, ...fields })
+      .select()
+      .single();
+    data = result.data;
+    error = result.error;
   }
 
-  logger.log(MOD, `Upserted deep analysis for ${trendId}`);
+  if (error) {
+    logger.error(MOD, `Failed to upsert trend analysis for ${trendId}`, error);
+    throw new Error(`Upsert trend analysis failed: ${error.message}`);
+  }
+
+  logger.log(MOD, `${existing ? 'Updated' : 'Inserted'} deep analysis for ${trendId}`);
   return data;
 }
 
