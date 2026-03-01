@@ -5,3 +5,5 @@ cookies/
 logs/
 *.log
 .claude/
+screenshots/
+debug/
