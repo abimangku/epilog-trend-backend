@@ -105,7 +105,7 @@ Include ALL ${videos.length} videos in your response.`;
       const match = parsed.results.find((r) => r.index === i);
       return {
         url: v.url,
-        verdict: match ? match.verdict : 'signal',
+        verdict: match ? match.verdict.toLowerCase() : 'signal',
         reason: match ? match.reason : 'No verdict returned',
       };
     });
