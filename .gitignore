@@ -1,0 +1,7 @@
+node_modules/
+.env
+playwright-state/
+cookies/
+logs/
+*.log
+.claude/
