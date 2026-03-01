@@ -29,7 +29,11 @@ const {
   createEngagementSnapshot,
   getRecentSnapshots,
   testConnection,
+  upsertTrendAnalysis,
+  upsertBrandFits,
 } = require('./database/supabase');
+const { analyzeTrend } = require('./ai/analyzer');
+const { scoreBrandFit } = require('./ai/brand-fit');
 
 // Slack module may not be implemented yet — import defensively
 let notifyActNow = null;
@@ -230,6 +234,26 @@ async function runPipeline() {
           comments: video.comments,
           shares: video.shares,
         });
+
+        // --- Step 4b: AI Analysis (non-blocking — errors don't fail the trend) ---
+        try {
+          const analysis = await analyzeTrend(enrichedTrend);
+          if (analysis) {
+            await upsertTrendAnalysis(trend_id, analysis);
+          }
+        } catch (aiErr) {
+          logger.warn(MOD, `AI analysis failed for: ${video.title}`, aiErr);
+        }
+
+        // --- Step 4c: Brand Fit Scoring ---
+        try {
+          const brandFits = await scoreBrandFit(enrichedTrend, trend_id);
+          if (brandFits.length > 0) {
+            await upsertBrandFits(brandFits);
+          }
+        } catch (bfErr) {
+          logger.warn(MOD, `Brand fit scoring failed for: ${video.title}`, bfErr);
+        }
 
         // Track confirmed_trend + act_now for Slack notification
         if (classification === 'confirmed_trend' && urgencyLevel === 'act_now') {

@@ -240,6 +240,73 @@ async function testConnection() {
   }
 }
 
+/**
+ * Upserts a trend analysis row into the 'trend_analysis' table.
+ *
+ * @param {string} trendId - UUID of the trend
+ * @param {object} analysis - AI-generated analysis data
+ * @returns {Promise<object>} The upserted row
+ * @throws {Error} If Supabase returns an error
+ */
+async function upsertTrendAnalysis(trendId, analysis) {
+  const row = {
+    trend_id: trendId,
+    analysis_type: analysis.analysis_type || 'general',
+    summary: analysis.summary,
+    key_insights: analysis.key_insights,
+    brand_relevance_notes: analysis.brand_relevance_notes,
+    recommended_action: analysis.recommended_action,
+    confidence: analysis.confidence,
+    relevance_score: analysis.relevance_score || 0,
+    virality_score: analysis.virality_score || 0,
+    brand_safety_score: analysis.brand_safety_score || 100,
+    replication_signal_score: analysis.replication_signal_score || 0,
+    why_trending: analysis.why_trending || '',
+    trash_check: analysis.trash_check || { passed: true, reasons: [] },
+    model_version: analysis.model_version,
+    analyzed_at: new Date().toISOString(),
+  };
+
+  const { data, error: upsertError } = await supabase
+    .from('trend_analysis')
+    .upsert(row, { onConflict: 'trend_id' })
+    .select()
+    .single();
+
+  if (upsertError) {
+    logger.error(MOD, `Failed to upsert trend analysis for ${trendId}`, upsertError);
+    throw new Error(`Upsert trend analysis failed: ${upsertError.message}`);
+  }
+
+  logger.log(MOD, `Upserted trend analysis for ${trendId}`);
+  return data;
+}
+
+/**
+ * Upserts brand fit rows into the 'client_brand_fit' table.
+ * One row per brand per trend.
+ *
+ * @param {object[]} brandFits - Array of brand fit objects with trend_id set
+ * @returns {Promise<object[]>} The upserted rows
+ * @throws {Error} If Supabase returns an error
+ */
+async function upsertBrandFits(brandFits) {
+  if (!brandFits || brandFits.length === 0) return [];
+
+  const { data, error: upsertError } = await supabase
+    .from('client_brand_fit')
+    .upsert(brandFits, { onConflict: 'trend_id,brand_name' })
+    .select();
+
+  if (upsertError) {
+    logger.error(MOD, `Failed to upsert brand fits`, upsertError);
+    throw new Error(`Upsert brand fits failed: ${upsertError.message}`);
+  }
+
+  logger.log(MOD, `Upserted ${(data || []).length} brand fit rows`);
+  return data || [];
+}
+
 module.exports = {
   supabase,
   generateTrendHash,
@@ -248,4 +315,6 @@ module.exports = {
   getRecentSnapshots,
   getRecentTrends,
   testConnection,
+  upsertTrendAnalysis,
+  upsertBrandFits,
 };
