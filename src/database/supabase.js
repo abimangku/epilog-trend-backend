@@ -241,17 +241,18 @@ async function testConnection() {
 }
 
 /**
- * Upserts a trend analysis row into the 'trend_analysis' table.
+ * Upserts a deep analysis row into the 'trend_analysis' table.
+ * Uses trend_id as the conflict key — one deep analysis per trend.
  *
  * @param {string} trendId - UUID of the trend
- * @param {object} analysis - AI-generated analysis data
+ * @param {object} analysis - Phase 2 deep analysis data
  * @returns {Promise<object>} The upserted row
  * @throws {Error} If Supabase returns an error
  */
 async function upsertTrendAnalysis(trendId, analysis) {
   const row = {
     trend_id: trendId,
-    analysis_type: analysis.analysis_type || 'general',
+    analysis_type: analysis.analysis_type || 'deep_analysis',
     summary: analysis.summary,
     key_insights: analysis.key_insights,
     brand_relevance_notes: analysis.brand_relevance_notes,
@@ -278,7 +279,50 @@ async function upsertTrendAnalysis(trendId, analysis) {
     throw new Error(`Upsert trend analysis failed: ${upsertError.message}`);
   }
 
-  logger.log(MOD, `Upserted trend analysis for ${trendId}`);
+  logger.log(MOD, `Upserted deep analysis for ${trendId}`);
+  return data;
+}
+
+/**
+ * Inserts a cross-trend synthesis row into the 'trend_analysis' table.
+ * These rows have trend_id = null and analysis_type = 'cross_trend_synthesis'.
+ * Each pipeline run creates a new synthesis (insert, not upsert).
+ *
+ * @param {object} synthesis - Phase 3 cross-trend synthesis data
+ * @returns {Promise<object>} The inserted row
+ * @throws {Error} If Supabase returns an error
+ */
+async function insertCrossTrendSynthesis(synthesis) {
+  const row = {
+    trend_id: null,
+    analysis_type: 'cross_trend_synthesis',
+    summary: synthesis.summary || '',
+    key_insights: synthesis.key_insights || [],
+    brand_relevance_notes: synthesis.brand_relevance_notes || '',
+    recommended_action: synthesis.recommended_action || '',
+    confidence: synthesis.confidence || 0,
+    relevance_score: 0,
+    virality_score: 0,
+    brand_safety_score: 100,
+    replication_signal_score: 0,
+    why_trending: synthesis.cultural_pulse || '',
+    trash_check: { passed: true, reasons: [] },
+    model_version: synthesis.model_version || '',
+    analyzed_at: new Date().toISOString(),
+  };
+
+  const { data, error: insertError } = await supabase
+    .from('trend_analysis')
+    .insert(row)
+    .select()
+    .single();
+
+  if (insertError) {
+    logger.error(MOD, 'Failed to insert cross-trend synthesis', insertError);
+    throw new Error(`Insert cross-trend synthesis failed: ${insertError.message}`);
+  }
+
+  logger.log(MOD, 'Inserted cross-trend synthesis row');
   return data;
 }
 
@@ -316,5 +360,6 @@ module.exports = {
   getRecentTrends,
   testConnection,
   upsertTrendAnalysis,
+  insertCrossTrendSynthesis,
   upsertBrandFits,
 };
