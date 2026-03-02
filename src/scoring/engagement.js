@@ -3,18 +3,44 @@
  * No side effects, no I/O, no external dependencies.
  */
 
+// Maximum expected weighted engagement volume for normalization.
+// Mega-viral: ~5M likes + 50K comments*2 + 600K shares*3 = ~6.9M. log10(6.9M) ≈ 6.84
+// Use 10M as ceiling so scores don't cluster near 100.
+const MAX_VOLUME = 10_000_000;
+
+/**
+ * Calculates weighted engagement volume for FYP scoring (views=0 context).
+ * Comments weighted 2x (deeper engagement), shares weighted 3x (distribution).
+ * @param {number} likes
+ * @param {number} comments
+ * @param {number} shares
+ * @returns {number} Weighted volume
+ */
+function weightedVolume(likes, comments, shares) {
+  return likes + comments * 2 + shares * 3;
+}
+
 /**
  * Calculates engagement rate as a percentage.
+ *
+ * When views > 0, uses classic (likes+comments+shares)/views formula.
+ * When views is 0/null/undefined (FYP context), switches to logarithmic
+ * volume-based scoring using weighted engagement counts.
  *
  * @param {number} likes
  * @param {number} comments
  * @param {number} shares
  * @param {number} views
- * @returns {number} Engagement rate as percentage (0-100+). Returns 0 if views is 0.
+ * @returns {number} Engagement rate as percentage (0-100+).
  */
 function calculateEngagementRate(likes, comments, shares, views) {
-  if (!views || views === 0) return 0;
-  return ((likes + comments + shares) / views) * 100;
+  if (views && views > 0) {
+    return ((likes + comments + shares) / views) * 100;
+  }
+  // FYP-native: volume-based score using logarithmic scaling
+  const volume = weightedVolume(likes, comments, shares);
+  if (volume <= 0) return 0;
+  return (Math.log10(volume + 1) / Math.log10(MAX_VOLUME + 1)) * 100;
 }
 
 /**
@@ -30,27 +56,36 @@ function calculateEngagementRate(likes, comments, shares, views) {
 function calculateVelocityScore(snapshots) {
   if (!snapshots || snapshots.length === 0) return 0;
 
-  // Single snapshot: return raw engagement rate, capped at 100
+  const isFYP = snapshots.every((s) => !s.views || s.views === 0);
+
+  // Single snapshot: return engagement score, capped at 100
   if (snapshots.length === 1) {
     const s = snapshots[0];
+    if (isFYP) {
+      const vol = weightedVolume(s.likes, s.comments, s.shares);
+      if (vol <= 0) return 0;
+      return Math.min((Math.log10(vol + 1) / Math.log10(MAX_VOLUME + 1)) * 100, 100);
+    }
     const rate = calculateEngagementRate(s.likes, s.comments, s.shares, s.views);
     return Math.min(rate, 100);
   }
 
-  // Calculate engagement rate for each snapshot
-  const rates = snapshots.map((s) =>
-    calculateEngagementRate(s.likes, s.comments, s.shares, s.views)
-  );
+  // Calculate metric for each snapshot: weighted volume (FYP) or engagement rate
+  const metrics = snapshots.map((s) => {
+    if (isFYP) {
+      return weightedVolume(s.likes, s.comments, s.shares);
+    }
+    return calculateEngagementRate(s.likes, s.comments, s.shares, s.views);
+  });
 
   // Calculate rate of change between consecutive snapshots
   const changes = [];
-  for (let i = 1; i < rates.length; i++) {
-    const prev = rates[i - 1];
+  for (let i = 1; i < metrics.length; i++) {
+    const prev = metrics[i - 1];
     if (prev === 0) {
-      // If previous rate was 0, treat any growth as a large jump
-      changes.push(rates[i] > 0 ? 100 : 0);
+      changes.push(metrics[i] > 0 ? 100 : 0);
     } else {
-      changes.push(((rates[i] - prev) / prev) * 100);
+      changes.push(((metrics[i] - prev) / prev) * 100);
     }
   }
 
@@ -60,7 +95,6 @@ function calculateVelocityScore(snapshots) {
   let weightTotal = 0;
 
   for (let i = 0; i < changes.length; i++) {
-    // Index from the end so the most recent change gets weight 1.0
     const weightIdx = weights.length - 1 - (changes.length - 1 - i);
     const w = weightIdx >= 0 ? weights[weightIdx] : 0.4;
     weightedSum += changes[i] * w;
@@ -88,13 +122,19 @@ function calculateVelocityScore(snapshots) {
 function calculateMomentum(snapshots) {
   if (!snapshots || snapshots.length < 3) return 'stable';
 
-  const rates = snapshots.map((s) =>
-    calculateEngagementRate(s.likes, s.comments, s.shares, s.views)
-  );
+  const isFYP = snapshots.every((s) => !s.views || s.views === 0);
+
+  // Use weighted volume (FYP) or engagement rate for metric comparison
+  const metrics = snapshots.map((s) => {
+    if (isFYP) {
+      return weightedVolume(s.likes, s.comments, s.shares);
+    }
+    return calculateEngagementRate(s.likes, s.comments, s.shares, s.views);
+  });
 
   // Calculate the last two velocity changes
-  const prevChange = rates[rates.length - 2] - rates[rates.length - 3];
-  const currentChange = rates[rates.length - 1] - rates[rates.length - 2];
+  const prevChange = metrics[metrics.length - 2] - metrics[metrics.length - 3];
+  const currentChange = metrics[metrics.length - 1] - metrics[metrics.length - 2];
 
   // Guard against zero division — if previous change is zero, compare absolutes
   if (prevChange === 0 && currentChange === 0) return 'stable';
