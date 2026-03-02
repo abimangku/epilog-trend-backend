@@ -59,8 +59,6 @@ const SELECTORS = {
 const CONFIG = {
   maxVideos: 40,
   timeoutMs: 90000,
-  scrollPauseMinMs: 3000,
-  scrollPauseMaxMs: 5000,
   pageLoadWaitMs: 8000,
   screenshotDir: path.join(process.cwd(), 'screenshots'),
   cookiePath: path.join(process.cwd(), 'cookies', 'tiktok.json'),
@@ -281,6 +279,7 @@ async function scrapeOnce(options = {}) {
 
     // --- Scroll, screenshot, and match loop ---
     let scrollAttempts = 0;
+    let staleScrollCount = 0; // consecutive scrolls with 0 new articles
     const maxScrollAttempts = maxVideos * 3; // safety limit
     // Track which JS items we've already consumed, by index
     const jsItemConsumedSet = new Set();
@@ -298,6 +297,8 @@ async function scrapeOnce(options = {}) {
 
       // Extract visible DOM articles (for screenshots + fallback metrics)
       const articleData = await _extractVisibleArticles(page);
+
+      const videosBeforeThisScroll = videos.length;
 
       for (const article of articleData) {
         if (videos.length >= maxVideos) break;
@@ -392,10 +393,48 @@ async function scrapeOnce(options = {}) {
         }
       }
 
-      // Scroll down to load more videos
-      const delay = randomDelay(CONFIG.scrollPauseMinMs, CONFIG.scrollPauseMaxMs);
-      await page.evaluate(() => window.scrollBy(0, window.innerHeight));
-      await page.waitForTimeout(delay);
+      // Stale scroll detection — early exit if no new content loading
+      if (videos.length === videosBeforeThisScroll) {
+        staleScrollCount++;
+        if (staleScrollCount >= 3) {
+          logger.log(MOD, `3 consecutive stale scrolls — stopping with ${videos.length} videos`);
+          break;
+        }
+      } else {
+        staleScrollCount = 0;
+      }
+
+      // --- Human-like scroll behavior ---
+      const scrollRoll = Math.random();
+      let scrollDistance;
+      let pauseMs;
+
+      if (scrollRoll < 0.10) {
+        // ~10%: slight upward scroll (simulates "wait, go back")
+        scrollDistance = -randomDelay(100, 300);
+        pauseMs = randomDelay(1000, 2000);
+      } else if (scrollRoll < 0.20) {
+        // ~10%: small re-read scroll
+        scrollDistance = randomDelay(200, 400);
+        pauseMs = randomDelay(500, 1500);
+      } else if (scrollRoll < 0.35) {
+        // ~15%: "watching" a video — long pause
+        scrollDistance = randomDelay(
+          Math.round(vpHeight * 0.6),
+          Math.round(vpHeight * 1.0)
+        );
+        pauseMs = randomDelay(8000, 15000);
+      } else {
+        // ~65%: normal scroll
+        scrollDistance = randomDelay(
+          Math.round(vpHeight * 0.7),
+          Math.round(vpHeight * 1.3)
+        );
+        pauseMs = randomDelay(2000, 5000);
+      }
+
+      await page.evaluate((dy) => window.scrollBy(0, dy), scrollDistance);
+      await page.waitForTimeout(pauseMs);
     }
 
     // Save cookies for next session
