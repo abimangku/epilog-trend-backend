@@ -2,8 +2,13 @@
  * TikTok FYP Scraper — scrolls the For You Page, extracts video metadata,
  * captures screenshots, and returns structured data for the AI pipeline.
  *
- * FYP shows likes, comments, bookmarks, and shares inline for every video.
- * Views are NOT shown on FYP — we set views to 0 and rely on other metrics.
+ * Video data is extracted from TikTok's JS state ($PREFETCH_CACHE and
+ * __UNIVERSAL_DATA_FOR_REHYDRATION__) plus API response interception during
+ * scroll. This gives us video IDs for direct URLs AND view counts (playCount)
+ * — neither of which are available in the DOM.
+ *
+ * DOM scraping is used only for taking screenshots and as a fallback for
+ * engagement metrics when JS state data is unavailable.
  *
  * @module scrapers/tiktok
  */
@@ -18,7 +23,10 @@ const MOD = 'SCRAPER';
 
 // ---------------------------------------------------------------------------
 // All TikTok FYP DOM selectors in one place.
-// Last verified: 2026-03-01 against live TikTok FYP (tiktok.com, locale id-ID).
+// Last verified: 2026-03-02 against live TikTok FYP (tiktok.com, locale id-ID).
+//
+// NOTE: The FYP DOM does NOT contain direct video links (a[href*="/video/"]).
+// Video IDs and view counts come from JS state + API interception instead.
 // ---------------------------------------------------------------------------
 const SELECTORS = {
   // Each video on the FYP is an <article> with this data-e2e attribute
@@ -32,9 +40,6 @@ const SELECTORS = {
 
   // Author avatar link — href is /@username
   authorAvatar: 'a[data-e2e="video-author-avatar"]',
-
-  // Direct link to the video page — href is /@username/video/{id}
-  videoLink: 'a[href*="/video/"]',
 
   // Engagement metrics (within each article)
   likes: 'strong[data-e2e="like-count"]',
@@ -142,8 +147,14 @@ function randomDelay(min, max) {
 // ---------------------------------------------------------------------------
 
 /**
- * Scrapes TikTok's For You Page (FYP). Scrolls through the feed,
- * extracts video metadata, and captures screenshots.
+ * Scrapes TikTok's For You Page (FYP). Extracts video metadata from TikTok's
+ * JS state and API responses, scrolls through the feed, and captures screenshots.
+ *
+ * Data extraction strategy:
+ * 1. JS state ($PREFETCH_CACHE + rehydration) provides initial video items
+ *    with IDs, authors, captions, AND view counts.
+ * 2. API response interception captures new video items loaded during scroll.
+ * 3. DOM scraping provides screenshots and fallback engagement metrics.
  *
  * @param {object} [options={}]
  * @param {number} [options.maxVideos=40] - Max videos to scrape
@@ -157,7 +168,10 @@ async function scrapeOnce(options = {}) {
 
   const videos = [];
   const screenshots = [];
-  const seenUrls = new Set();
+  const seenVideoIds = new Set();
+
+  // JS video items collected from state + API interception
+  const jsVideoItems = [];
 
   // Ensure screenshots directory exists
   await fs.promises.mkdir(CONFIG.screenshotDir, { recursive: true });
@@ -187,6 +201,35 @@ async function scrapeOnce(options = {}) {
 
     const page = await context.newPage();
 
+    // --- API Response Interception ---
+    // Capture video items from TikTok's feed API responses during scroll.
+    // The API returns JSON with an itemList array of video items.
+    page.on('response', async (response) => {
+      try {
+        const url = response.url();
+        // Match TikTok's recommend/feed API endpoints
+        if (url.includes('/api/recommend/item_list') ||
+            url.includes('/api/post/item_list') ||
+            (url.includes('recommend') && url.includes('item_list'))) {
+          const contentType = response.headers()['content-type'] || '';
+          if (!contentType.includes('json')) return;
+
+          const body = await response.json();
+          if (body && Array.isArray(body.itemList)) {
+            for (const item of body.itemList) {
+              const normalized = _normalizeApiItem(item);
+              if (normalized) {
+                jsVideoItems.push(normalized);
+              }
+            }
+            logger.log(MOD, `Intercepted ${body.itemList.length} items from API (total: ${jsVideoItems.length})`);
+          }
+        }
+      } catch {
+        // Ignore non-JSON responses or parse errors
+      }
+    });
+
     // Navigate to FYP
     logger.log(MOD, 'Navigating to tiktok.com (FYP)...');
     await page.goto('https://www.tiktok.com', {
@@ -206,11 +249,20 @@ async function scrapeOnce(options = {}) {
       return { videos, screenshots };
     }
 
+    // --- Extract initial video data from JS state ---
+    const initialItems = await _extractVideoItemsFromJsState(page);
+    jsVideoItems.push(...initialItems);
+    logger.log(MOD, `Extracted ${initialItems.length} items from JS state (total: ${jsVideoItems.length})`);
+
     logger.log(MOD, 'FYP loaded, beginning scroll extraction...');
 
-    // Scroll and extract loop
+    // --- Scroll, screenshot, and match loop ---
     let scrollAttempts = 0;
     const maxScrollAttempts = maxVideos * 3; // safety limit
+    // Track which JS items we've already consumed, by index
+    const jsItemConsumedSet = new Set();
+    // Track which DOM articles we've already processed (by articleId)
+    const seenArticleIds = new Set();
 
     while (videos.length < maxVideos && scrollAttempts < maxScrollAttempts) {
       // Check timeout
@@ -221,44 +273,64 @@ async function scrapeOnce(options = {}) {
 
       scrollAttempts++;
 
-      // Extract all currently visible articles
+      // Extract visible DOM articles (for screenshots + fallback metrics)
       const articleData = await _extractVisibleArticles(page);
 
       for (const article of articleData) {
         if (videos.length >= maxVideos) break;
+        if (!article.authorUsername) continue;
 
-        // Build video URL — prefer direct video link, fall back to profile
-        let videoUrl = null;
-        if (article.videoPath && article.videoPath.includes('/video/')) {
-          // Handle both relative (/@ ...) and absolute (https://...) hrefs
-          if (article.videoPath.startsWith('http')) {
-            videoUrl = article.videoPath;
-          } else {
-            videoUrl = `https://www.tiktok.com${article.videoPath}`;
-          }
-        } else if (article.authorUsername) {
+        // Skip DOM articles we've already processed (visible across multiple scrolls)
+        const articleKey = article.articleId || (article.authorUsername + '|' + article.caption);
+        if (seenArticleIds.has(articleKey)) continue;
+        seenArticleIds.add(articleKey);
+
+        // --- Match DOM article to JS video item ---
+        const jsMatch = _findBestJsMatch(
+          jsVideoItems, jsItemConsumedSet,
+          article.authorUsername, article.caption
+        );
+
+        let videoUrl;
+        let videoViews = 0;
+        let videoLikes = article.likes;
+        let videoComments = article.comments;
+        let videoShares = article.shares;
+        let videoBookmarks = article.bookmarks;
+
+        if (jsMatch) {
+          // Use JS-extracted data: video URL with ID + real view count
+          videoUrl = `https://www.tiktok.com/@${jsMatch.author}/video/${jsMatch.videoId}`;
+          videoViews = jsMatch.views || 0;
+          // Prefer JS stats when available (they're exact, not abbreviated)
+          if (jsMatch.likes > 0) videoLikes = jsMatch.likes;
+          if (jsMatch.comments > 0) videoComments = jsMatch.comments;
+          if (jsMatch.shares > 0) videoShares = jsMatch.shares;
+          if (jsMatch.bookmarks > 0) videoBookmarks = jsMatch.bookmarks;
+        } else {
+          // Fallback: profile URL (no video ID available)
           videoUrl = `https://www.tiktok.com/@${article.authorUsername}`;
+          logger.warn(MOD, `No JS match for ${article.authorUsername} — using profile URL`);
         }
 
-        // Dedup: video URLs are unique; profile URLs need caption suffix
-        const dedupKey = videoUrl && videoUrl.includes('/video/')
+        // Dedup by video URL
+        const dedupKey = videoUrl.includes('/video/')
           ? videoUrl
           : videoUrl + '|' + (article.caption || '');
-        if (!videoUrl || seenUrls.has(dedupKey)) continue;
-        seenUrls.add(dedupKey);
+        if (seenVideoIds.has(dedupKey)) continue;
+        seenVideoIds.add(dedupKey);
 
         // Take screenshot of the article
         let screenshotPath = null;
         try {
           const hash = videoHash(videoUrl);
           screenshotPath = path.join(CONFIG.screenshotDir, `${hash}.png`);
-          const articleEl = await page.$(
-            `#${article.articleId}`
-          );
+          const articleEl = article.articleId
+            ? await page.$(`#${article.articleId}`)
+            : null;
           if (articleEl) {
             await articleEl.screenshot({ path: screenshotPath });
           } else {
-            // Fallback: full page screenshot
             await page.screenshot({ path: screenshotPath, fullPage: false });
           }
         } catch (ssErr) {
@@ -275,11 +347,11 @@ async function scrapeOnce(options = {}) {
           title: article.caption || `Video by ${article.authorUsername}`,
           author: article.authorUsername || 'unknown',
           author_tier: 'unknown',
-          views: 0, // FYP does not show view counts
-          likes: article.likes,
-          comments: article.comments,
-          shares: article.shares,
-          bookmarks: article.bookmarks,
+          views: videoViews,
+          likes: videoLikes,
+          comments: videoComments,
+          shares: videoShares,
+          bookmarks: videoBookmarks,
           hashtags,
           audio_id: music.id,
           audio_title: music.title,
@@ -306,7 +378,9 @@ async function scrapeOnce(options = {}) {
     // Save cookies for next session
     await _saveCookies(context);
 
-    logger.log(MOD, `FYP scrape complete: ${videos.length} videos, ${screenshots.length} screenshots`);
+    const videoUrlCount = videos.filter((v) => v.url.includes('/video/')).length;
+    const viewsCount = videos.filter((v) => v.views > 0).length;
+    logger.log(MOD, `FYP scrape complete: ${videos.length} videos, ${videoUrlCount} with video URLs, ${viewsCount} with views, ${screenshots.length} screenshots`);
 
   } catch (err) {
     logger.error(MOD, 'FYP scrape failed', err);
@@ -328,7 +402,177 @@ async function scrapeOnce(options = {}) {
 // ---------------------------------------------------------------------------
 
 /**
+ * Extracts video items from TikTok's JS state on the page.
+ * Reads from two sources:
+ * 1. $PREFETCH_CACHE.recommendItemList — prefetched feed items
+ * 2. __UNIVERSAL_DATA_FOR_REHYDRATION__['webapp.updated-items'] — SSR items
+ *
+ * @param {import('playwright').Page} page
+ * @returns {Promise<object[]>} Normalized video items
+ */
+async function _extractVideoItemsFromJsState(page) {
+  const rawItems = await page.evaluate(async () => {
+    const items = [];
+
+    // Source 1: $PREFETCH_CACHE.recommendItemList
+    try {
+      const cache = window.$PREFETCH_CACHE;
+      if (cache && cache.recommendItemList) {
+        let data = cache.recommendItemList.result;
+        // Might be a Promise
+        if (data && typeof data.then === 'function') {
+          data = await data;
+        }
+        if (data && Array.isArray(data.itemList)) {
+          for (const item of data.itemList) {
+            if (item && item.id && item.author) {
+              items.push({
+                source: 'prefetch',
+                videoId: item.id,
+                author: item.author.uniqueId || '',
+                desc: item.desc || '',
+                views: (item.stats && item.stats.playCount) || 0,
+                likes: (item.stats && item.stats.diggCount) || 0,
+                comments: (item.stats && item.stats.commentCount) || 0,
+                shares: (item.stats && item.stats.shareCount) || 0,
+                bookmarks: (item.stats && item.stats.collectCount) || 0,
+              });
+            }
+          }
+        }
+      }
+    } catch {
+      // Prefetch cache unavailable
+    }
+
+    // Source 2: __UNIVERSAL_DATA_FOR_REHYDRATION__
+    try {
+      const el = document.querySelector('#__UNIVERSAL_DATA_FOR_REHYDRATION__');
+      if (el) {
+        const data = JSON.parse(el.textContent || '{}');
+        const scope = data['__DEFAULT_SCOPE__'];
+        if (scope) {
+          const updatedItems = scope['webapp.updated-items'];
+          if (updatedItems && typeof updatedItems === 'object') {
+            for (const key of Object.keys(updatedItems)) {
+              const item = updatedItems[key];
+              if (item && item.id && item.author) {
+                items.push({
+                  source: 'rehydration',
+                  videoId: item.id,
+                  author: item.author.uniqueId || '',
+                  desc: item.desc || '',
+                  views: (item.stats && item.stats.playCount) || 0,
+                  likes: (item.stats && item.stats.diggCount) || 0,
+                  comments: (item.stats && item.stats.commentCount) || 0,
+                  shares: (item.stats && item.stats.shareCount) || 0,
+                  bookmarks: parseInt(item.stats && item.stats.collectCount, 10) || 0,
+                });
+              }
+            }
+          }
+        }
+      }
+    } catch {
+      // Rehydration data unavailable
+    }
+
+    return items;
+  });
+
+  // Normalize bookmarks (rehydration sometimes returns strings)
+  return rawItems.map((item) => ({
+    ...item,
+    bookmarks: typeof item.bookmarks === 'string' ? parseInt(item.bookmarks, 10) || 0 : item.bookmarks,
+  }));
+}
+
+/**
+ * Normalizes a video item from TikTok's API response.
+ * API items have the same structure as $PREFETCH_CACHE items.
+ *
+ * @param {object} item - Raw API item
+ * @returns {object|null} Normalized video item, or null if invalid
+ */
+function _normalizeApiItem(item) {
+  if (!item || !item.id || !item.author) return null;
+  return {
+    source: 'api',
+    videoId: item.id,
+    author: item.author.uniqueId || '',
+    desc: item.desc || '',
+    views: (item.stats && item.stats.playCount) || 0,
+    likes: (item.stats && item.stats.diggCount) || 0,
+    comments: (item.stats && item.stats.commentCount) || 0,
+    shares: (item.stats && item.stats.shareCount) || 0,
+    bookmarks: parseInt((item.stats && item.stats.collectCount) || 0, 10) || 0,
+  };
+}
+
+/**
+ * Finds the best matching JS video item for a DOM article.
+ * Matches primarily by author username, then by caption similarity.
+ * Marks consumed items to prevent double-matching.
+ *
+ * @param {object[]} jsItems - All collected JS video items
+ * @param {Set} consumedSet - Set of already-consumed item indices
+ * @param {string} authorUsername - Author from DOM article
+ * @param {string} caption - Caption text from DOM article
+ * @returns {object|null} Matched JS item, or null if no match
+ */
+function _findBestJsMatch(jsItems, consumedSet, authorUsername, caption) {
+  if (!authorUsername) return null;
+
+  // Clean author for matching (DOM may have leading @ or extra whitespace)
+  const cleanAuthor = authorUsername.replace(/^@/, '').trim().toLowerCase();
+  const cleanCaption = (caption || '').trim().toLowerCase();
+
+  // Find all unconsumed items by same author
+  const candidates = [];
+  for (let i = 0; i < jsItems.length; i++) {
+    if (consumedSet.has(i)) continue;
+    const itemAuthor = (jsItems[i].author || '').toLowerCase();
+    if (itemAuthor === cleanAuthor) {
+      candidates.push({ index: i, item: jsItems[i] });
+    }
+  }
+
+  if (candidates.length === 0) return null;
+
+  // If only one candidate, use it
+  if (candidates.length === 1) {
+    consumedSet.add(candidates[0].index);
+    return candidates[0].item;
+  }
+
+  // Multiple candidates by same author — match by caption similarity
+  let bestMatch = candidates[0];
+  let bestScore = 0;
+
+  for (const c of candidates) {
+    const itemCaption = (c.item.desc || '').trim().toLowerCase();
+    // Simple similarity: count matching words
+    const captionWords = cleanCaption.split(/\s+/).filter(Boolean);
+    const itemWords = new Set(itemCaption.split(/\s+/).filter(Boolean));
+    let matchingWords = 0;
+    for (const w of captionWords) {
+      if (itemWords.has(w)) matchingWords++;
+    }
+    const score = captionWords.length > 0 ? matchingWords / captionWords.length : 0;
+    if (score > bestScore) {
+      bestScore = score;
+      bestMatch = c;
+    }
+  }
+
+  consumedSet.add(bestMatch.index);
+  return bestMatch.item;
+}
+
+/**
  * Extracts data from all currently visible article elements on the page.
+ * Used for screenshots and fallback engagement metrics.
+ *
  * @param {import('playwright').Page} page
  * @returns {Promise<object[]>}
  */
@@ -358,22 +602,11 @@ async function _extractVisibleArticles(page) {
           }
         }
 
-        // Video URL — direct link to /@username/video/{id}
-        const videoLinkEl = article.querySelector(sel.videoLink);
-        let videoPath = '';
-        if (videoLinkEl) {
-          const rawHref = videoLinkEl.getAttribute('href') || '';
-          // Validate: must contain /video/ followed by digits
-          if (/\/video\/\d+/.test(rawHref)) {
-            videoPath = rawHref;
-          }
-        }
-
         // Caption
         const descEl = article.querySelector(sel.videoDesc);
         const caption = descEl ? (descEl.textContent || '').trim() : '';
 
-        // Engagement metrics
+        // Engagement metrics (fallback — JS state provides exact numbers)
         const likesEl = article.querySelector(sel.likes);
         const commentsEl = article.querySelector(sel.comments);
         const sharesEl = article.querySelector(sel.shares);
@@ -391,7 +624,6 @@ async function _extractVisibleArticles(page) {
         results.push({
           articleId: article.id || '',
           authorUsername,
-          videoPath,
           caption,
           likesText,
           commentsText,
