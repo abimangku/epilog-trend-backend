@@ -41,16 +41,22 @@ describe('calculateEngagementRate', () => {
     expect(calculateEngagementRate(100, 50, 25, 10000)).toBeCloseTo(1.75);
   });
 
-  test('zero views returns 0', () => {
-    expect(calculateEngagementRate(100, 50, 25, 0)).toBe(0);
+  test('zero views with engagement returns FYP volume score (not 0)', () => {
+    const result = calculateEngagementRate(100, 50, 25, 0);
+    expect(result).toBeGreaterThan(0);
+    expect(result).toBeLessThanOrEqual(100);
   });
 
-  test('null views returns 0', () => {
-    expect(calculateEngagementRate(100, 50, 25, null)).toBe(0);
+  test('null views with engagement returns FYP volume score (not 0)', () => {
+    const result = calculateEngagementRate(100, 50, 25, null);
+    expect(result).toBeGreaterThan(0);
+    expect(result).toBeLessThanOrEqual(100);
   });
 
-  test('undefined views returns 0', () => {
-    expect(calculateEngagementRate(100, 50, 25, undefined)).toBe(0);
+  test('undefined views with engagement returns FYP volume score (not 0)', () => {
+    const result = calculateEngagementRate(100, 50, 25, undefined);
+    expect(result).toBeGreaterThan(0);
+    expect(result).toBeLessThanOrEqual(100);
   });
 
   test('all zeros returns 0', () => {
@@ -452,5 +458,113 @@ describe('compositeScore', () => {
     // Only velocity: 100, everything else 0
     // score = 100*0.25 = 25
     expect(compositeScore(0, 100, 0, 0)).toBeCloseTo(25);
+  });
+});
+
+// ===========================================================================
+// engagement.js — FYP-native scoring (views=0)
+// ===========================================================================
+
+describe('calculateEngagementRate — FYP volume scoring (views=0)', () => {
+  test('views=0 with typical FYP engagement returns meaningful score', () => {
+    // 701K likes, 2557 comments, 18900 shares (real data from DB)
+    const result = calculateEngagementRate(701200, 2557, 18900, 0);
+    expect(result).toBeGreaterThan(30);
+    expect(result).toBeLessThanOrEqual(100);
+  });
+
+  test('views=0 with mega-viral engagement returns high score', () => {
+    // 2.9M likes, 27900 comments, 644100 shares (real data from DB)
+    const result = calculateEngagementRate(2900000, 27900, 644100, 0);
+    expect(result).toBeGreaterThan(70);
+    expect(result).toBeLessThanOrEqual(100);
+  });
+
+  test('views=0 with small engagement returns low-to-mid score', () => {
+    // ~1K total engagement -> weighted volume = 500 + 200 + 150 = 850
+    const result = calculateEngagementRate(500, 100, 50, 0);
+    expect(result).toBeGreaterThan(0);
+    expect(result).toBeLessThan(50);
+  });
+
+  test('views=0 with zero engagement returns 0', () => {
+    expect(calculateEngagementRate(0, 0, 0, 0)).toBe(0);
+  });
+
+  test('views=0 shares weighted highest (3x)', () => {
+    const sharesHeavy = calculateEngagementRate(100, 100, 10000, 0);
+    const likesHeavy = calculateEngagementRate(10000, 100, 100, 0);
+    expect(sharesHeavy).toBeGreaterThan(likesHeavy);
+  });
+
+  test('views>0 still uses original rate formula', () => {
+    expect(calculateEngagementRate(100, 50, 25, 10000)).toBeCloseTo(1.75);
+  });
+});
+
+describe('calculateVelocityScore — FYP volume velocity (views=0)', () => {
+  test('single snapshot with views=0 returns volume-based score', () => {
+    const result = calculateVelocityScore([snap(1, 0, 701200, 2557, 18900)]);
+    expect(result).toBeGreaterThan(0);
+    expect(result).toBeLessThanOrEqual(100);
+  });
+
+  test('growing engagement between views=0 snapshots produces positive velocity', () => {
+    const snapshots = [
+      snap(2, 0, 100000, 500, 5000),
+      snap(1, 0, 500000, 2500, 25000),
+    ];
+    const result = calculateVelocityScore(snapshots);
+    expect(result).toBeGreaterThan(50);
+  });
+
+  test('flat engagement between views=0 snapshots produces low velocity', () => {
+    const snapshots = [
+      snap(2, 0, 100000, 500, 5000),
+      snap(1, 0, 105000, 520, 5100),
+    ];
+    const result = calculateVelocityScore(snapshots);
+    expect(result).toBeGreaterThan(0);
+    expect(result).toBeLessThan(50);
+  });
+
+  test('views>0 snapshots still use original rate-based velocity', () => {
+    const snapshots = [
+      snap(2, 10000, 100, 50, 25),
+      snap(1, 20000, 400, 150, 100),
+    ];
+    const result = calculateVelocityScore(snapshots);
+    expect(result).toBeGreaterThan(0);
+  });
+});
+
+describe('calculateMomentum — FYP volume momentum (views=0)', () => {
+  test('accelerating with views=0 snapshots', () => {
+    const snapshots = [
+      snap(3, 0, 10000, 100, 500),
+      snap(2, 0, 50000, 500, 2500),
+      snap(1, 0, 300000, 3000, 15000),
+    ];
+    expect(calculateMomentum(snapshots)).toBe('accelerating');
+  });
+
+  test('decelerating with views=0 snapshots', () => {
+    const snapshots = [
+      snap(3, 0, 10000, 100, 500),
+      snap(2, 0, 100000, 1000, 5000),
+      snap(1, 0, 110000, 1100, 5500),
+    ];
+    expect(calculateMomentum(snapshots)).toBe('decelerating');
+  });
+
+  test('stable with views=0 snapshots', () => {
+    // Weighted volumes: 117K -> 234K -> 351K
+    // Changes: +117K, +117K (equal = stable)
+    const snapshots = [
+      snap(3, 0, 100000, 1000, 5000),
+      snap(2, 0, 200000, 2000, 10000),
+      snap(1, 0, 300000, 3000, 15000),
+    ];
+    expect(calculateMomentum(snapshots)).toBe('stable');
   });
 });
