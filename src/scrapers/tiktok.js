@@ -67,6 +67,22 @@ const CONFIG = {
 };
 
 // ---------------------------------------------------------------------------
+// Anti-detection: user agent pool and viewport ranges
+// ---------------------------------------------------------------------------
+const USER_AGENTS = [
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36',
+];
+
+const VIEWPORT_RANGE = {
+  widthMin: 1260, widthMax: 1400,
+  heightMin: 780, heightMax: 900,
+};
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -187,13 +203,18 @@ async function scrapeOnce(options = {}) {
       args: [
         '--no-sandbox',
         '--disable-setuid-sandbox',
-        '--disable-blink-features=AutomationControlled',
       ],
     });
 
+    const selectedUA = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+    const vpWidth = randomDelay(VIEWPORT_RANGE.widthMin, VIEWPORT_RANGE.widthMax);
+    const vpHeight = randomDelay(VIEWPORT_RANGE.heightMin, VIEWPORT_RANGE.heightMax);
+    const chromeVer = (selectedUA.match(/Chrome\/([\d.]+)/) || [])[1] || 'unknown';
+    logger.log(MOD, `Session fingerprint: Chrome/${chromeVer}, viewport=${vpWidth}x${vpHeight}`);
+
     const context = await browser.newContext({
-      userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36',
-      viewport: { width: 1280, height: 800 },
+      userAgent: selectedUA,
+      viewport: { width: vpWidth, height: vpHeight },
       locale: 'id-ID',
       timezoneId: 'Asia/Jakarta',
     });
