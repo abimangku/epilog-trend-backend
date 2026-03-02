@@ -33,6 +33,9 @@ const SELECTORS = {
   // Author avatar link — href is /@username
   authorAvatar: 'a[data-e2e="video-author-avatar"]',
 
+  // Direct link to the video page — href is /@username/video/{id}
+  videoLink: 'a[href*="/video/"]',
+
   // Engagement metrics (within each article)
   likes: 'strong[data-e2e="like-count"]',
   comments: 'strong[data-e2e="comment-count"]',
@@ -224,18 +227,30 @@ async function scrapeOnce(options = {}) {
       for (const article of articleData) {
         if (videos.length >= maxVideos) break;
 
-        // Build a URL for this video
-        const videoUrl = article.authorUsername
-          ? `https://www.tiktok.com/@${article.authorUsername}`
-          : null;
+        // Build video URL — prefer direct video link, fall back to profile
+        let videoUrl = null;
+        if (article.videoPath && article.videoPath.includes('/video/')) {
+          // Handle both relative (/@ ...) and absolute (https://...) hrefs
+          if (article.videoPath.startsWith('http')) {
+            videoUrl = article.videoPath;
+          } else {
+            videoUrl = `https://www.tiktok.com${article.videoPath}`;
+          }
+        } else if (article.authorUsername) {
+          videoUrl = `https://www.tiktok.com/@${article.authorUsername}`;
+        }
 
-        if (!videoUrl || seenUrls.has(videoUrl + article.caption)) continue;
-        seenUrls.add(videoUrl + article.caption);
+        // Dedup: video URLs are unique; profile URLs need caption suffix
+        const dedupKey = videoUrl && videoUrl.includes('/video/')
+          ? videoUrl
+          : videoUrl + '|' + (article.caption || '');
+        if (!videoUrl || seenUrls.has(dedupKey)) continue;
+        seenUrls.add(dedupKey);
 
         // Take screenshot of the article
         let screenshotPath = null;
         try {
-          const hash = videoHash(videoUrl + article.caption);
+          const hash = videoHash(videoUrl);
           screenshotPath = path.join(CONFIG.screenshotDir, `${hash}.png`);
           const articleEl = await page.$(
             `#${article.articleId}`
@@ -343,6 +358,17 @@ async function _extractVisibleArticles(page) {
           }
         }
 
+        // Video URL — direct link to /@username/video/{id}
+        const videoLinkEl = article.querySelector(sel.videoLink);
+        let videoPath = '';
+        if (videoLinkEl) {
+          const rawHref = videoLinkEl.getAttribute('href') || '';
+          // Validate: must contain /video/ followed by digits
+          if (/\/video\/\d+/.test(rawHref)) {
+            videoPath = rawHref;
+          }
+        }
+
         // Caption
         const descEl = article.querySelector(sel.videoDesc);
         const caption = descEl ? (descEl.textContent || '').trim() : '';
@@ -365,6 +391,7 @@ async function _extractVisibleArticles(page) {
         results.push({
           articleId: article.id || '',
           authorUsername,
+          videoPath,
           caption,
           likesText,
           commentsText,
