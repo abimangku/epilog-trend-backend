@@ -33,13 +33,13 @@ const MOD = 'SCHEDULER';
 // ---------------------------------------------------------------------------
 
 const SCHEDULE = {
-  morning:   { start: 5,  end: 8,  intervalMinutes: 30,  aiAnalysis: true },
+  morning:   { start: 5,  end: 8,  intervalMinutes: 60,  aiAnalysis: true },
   work:      { start: 8,  end: 11, intervalMinutes: 90,  aiAnalysis: false },
-  lunch:     { start: 11, end: 14, intervalMinutes: 30,  aiAnalysis: true },
+  lunch:     { start: 11, end: 14, intervalMinutes: 45,  aiAnalysis: true },
   afternoon: { start: 14, end: 18, intervalMinutes: 60,  aiAnalysis: false },
-  primetime: { start: 18, end: 22, intervalMinutes: 20,  aiAnalysis: true },
-  latenight: { start: 22, end: 24, intervalMinutes: 45,  aiAnalysis: true },
-  sleep:     { start: 0,  end: 5,  intervalMinutes: 120, aiAnalysis: false },
+  primetime: { start: 18, end: 22, intervalMinutes: 60,  aiAnalysis: true },
+  latenight: { start: 22, end: 24, intervalMinutes: 90,  aiAnalysis: true },
+  sleep:     { start: 0,  end: 5,  intervalMinutes: 0,   aiAnalysis: false },
 };
 
 // ---------------------------------------------------------------------------
@@ -47,6 +47,7 @@ const SCHEDULE = {
 // ---------------------------------------------------------------------------
 
 let lastScrapeTime = null;     // Date object
+let nextScrapeAt = null;       // Unix timestamp (ms) — jittered threshold for next scrape
 let scrapeRunning = false;
 let consecutiveFailures = 0;
 let totalScrapesToday = 0;
@@ -92,9 +93,8 @@ function getCurrentWindow() {
  * @returns {Date|null}
  */
 function getNextScrapeTime() {
-  if (!lastScrapeTime) return null;
-  const { config } = getCurrentWindow();
-  return new Date(lastScrapeTime.getTime() + config.intervalMinutes * 60 * 1000);
+  if (!nextScrapeAt) return null;
+  return new Date(nextScrapeAt);
 }
 
 // ---------------------------------------------------------------------------
@@ -104,13 +104,12 @@ function getNextScrapeTime() {
 async function onTick() {
   const { name, config } = getCurrentWindow();
 
-  // Check if enough time has elapsed since the last scrape
-  const now = Date.now();
-  const intervalMs = config.intervalMinutes * 60 * 1000;
-  const elapsed = lastScrapeTime ? now - lastScrapeTime.getTime() : Infinity;
+  // Skip disabled windows (intervalMinutes === 0)
+  if (config.intervalMinutes === 0) return;
 
-  if (elapsed < intervalMs) {
-    // Not time yet — silent (avoid spamming logs every minute)
+  // Check if it's time to scrape (threshold set once per scrape, not re-rolled)
+  const now = Date.now();
+  if (nextScrapeAt && now < nextScrapeAt) {
     return;
   }
 
@@ -158,6 +157,15 @@ async function onTick() {
   } finally {
     lastScrapeTime = new Date();
     scrapeRunning = false;
+
+    // Sample jitter ONCE for next scrape — prevents re-rolling drift
+    const { config: nextConfig } = getCurrentWindow();
+    if (nextConfig.intervalMinutes > 0) {
+      const jitter = 0.7 + (Math.random() * 0.6); // ±30% variance
+      nextScrapeAt = Date.now() + nextConfig.intervalMinutes * 60 * 1000 * jitter;
+    } else {
+      nextScrapeAt = null;
+    }
   }
 }
 
@@ -209,7 +217,8 @@ async function onDailyBrief() {
  */
 function start() {
   const { name, config } = getCurrentWindow();
-  logger.log(MOD, `Starting scheduler — current window: "${name}" (every ${config.intervalMinutes}m)`);
+  const intervalLabel = config.intervalMinutes === 0 ? 'disabled' : `every ${config.intervalMinutes}m`;
+  logger.log(MOD, `Starting scheduler — current window: "${name}" (${intervalLabel})`);
 
   // Main tick: every minute
   mainCron = cron.schedule('* * * * *', () => {
