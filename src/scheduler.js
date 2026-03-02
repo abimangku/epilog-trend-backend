@@ -50,6 +50,7 @@ let lastScrapeTime = null;     // Date object
 let nextScrapeAt = null;       // Unix timestamp (ms) — jittered threshold for next scrape
 let scrapeRunning = false;
 let consecutiveFailures = 0;
+let consecutiveEmptyScrapes = 0;
 let totalScrapesToday = 0;
 let dailyStats = { new: 0, updated: 0, errors: 0 };
 
@@ -113,6 +114,20 @@ async function onTick() {
     return;
   }
 
+  // Skip to next window after 3+ consecutive empty scrapes (1x → 2x → 4x → skip)
+  if (consecutiveEmptyScrapes >= 3) {
+    logger.warn(MOD, `3+ empty scrapes — skipping "${name}" window entirely`);
+    // Clamp end hour: config.end=24 means midnight, use 23:59:59.999 to avoid overflow
+    const endHour = config.end === 24 ? 23 : config.end;
+    const endMin  = config.end === 24 ? 59 : 0;
+    const endSec  = config.end === 24 ? 59 : 0;
+    const windowEndMs = new Date().setHours(endHour, endMin, endSec, config.end === 24 ? 999 : 0);
+    lastScrapeTime = new Date(windowEndMs);
+    nextScrapeAt = windowEndMs; // prevent immediate re-fire on next tick
+    consecutiveEmptyScrapes = 0;
+    return;
+  }
+
   // Guard against overlapping runs
   if (scrapeRunning) {
     logger.warn(MOD, `Skipped — previous scrape still running (window: ${name})`);
@@ -125,6 +140,14 @@ async function onTick() {
 
   try {
     const result = await runPipelineOnce();
+
+    // Track empty scrapes for backoff (rate-limiting detection)
+    if (result.scraped === 0) {
+      consecutiveEmptyScrapes++;
+      logger.warn(MOD, `Empty scrape #${consecutiveEmptyScrapes} — backing off`);
+    } else {
+      consecutiveEmptyScrapes = 0;
+    }
 
     // Success — reset failure counter, update stats
     consecutiveFailures = 0;
@@ -162,7 +185,10 @@ async function onTick() {
     const { config: nextConfig } = getCurrentWindow();
     if (nextConfig.intervalMinutes > 0) {
       const jitter = 0.7 + (Math.random() * 0.6); // ±30% variance
-      nextScrapeAt = Date.now() + nextConfig.intervalMinutes * 60 * 1000 * jitter;
+      const backoff = consecutiveEmptyScrapes > 0
+        ? Math.min(Math.pow(2, consecutiveEmptyScrapes), 4) // 2x at 1, 4x at 2, skip at 3+
+        : 1;
+      nextScrapeAt = Date.now() + nextConfig.intervalMinutes * 60 * 1000 * jitter * backoff;
     } else {
       nextScrapeAt = null;
     }
@@ -178,6 +204,7 @@ function onDailyReset() {
     + `${dailyStats.new} new, ${dailyStats.updated} updated, ${dailyStats.errors} errors`);
 
   totalScrapesToday = 0;
+  consecutiveEmptyScrapes = 0;
   dailyStats = { new: 0, updated: 0, errors: 0 };
 }
 
@@ -260,15 +287,21 @@ function stop() {
 /**
  * Returns current scheduler status for the /status/pipeline endpoint.
  *
- * @returns {{ currentWindow: string, currentInterval: number, lastScrapeTime: string|null, nextScrapeTime: string|null, totalScrapesToday: number }}
+ * @returns {{ currentWindow: string, currentInterval: number, effectiveInterval: number, backoffMultiplier: number, consecutiveEmptyScrapes: number, lastScrapeTime: string|null, nextScrapeTime: string|null, totalScrapesToday: number }}
  */
 function getSchedulerStatus() {
   const { name, config } = getCurrentWindow();
   const next = getNextScrapeTime();
+  const backoff = consecutiveEmptyScrapes > 0
+    ? Math.min(Math.pow(2, consecutiveEmptyScrapes), 4)
+    : 1;
 
   return {
     currentWindow: name,
     currentInterval: config.intervalMinutes,
+    effectiveInterval: Math.round(config.intervalMinutes * backoff),
+    backoffMultiplier: backoff,
+    consecutiveEmptyScrapes,
     lastScrapeTime: lastScrapeTime ? lastScrapeTime.toISOString() : null,
     nextScrapeTime: next ? next.toISOString() : null,
     totalScrapesToday,
