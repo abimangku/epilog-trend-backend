@@ -6,32 +6,17 @@
 const { calculateEngagementRate, calculateMomentum } = require('./engagement');
 
 /**
- * Classifies a trend into a category based on its metrics and pattern score.
+ * Classifies a trend based on its composite score.
+ * Uses the same score thresholds as the frontend for consistency.
  *
- * @param {object} trend
- * @param {number} trend.replication_count
- * @param {number} trend.velocity_score
- * @param {number} trend.engagement_rate
- * @param {number} patternScore - Pattern detection score (from patterns module)
- * @returns {'confirmed_trend' | 'emerging_trend' | 'brand_opportunity' | 'viral_moment' | 'noise'}
+ * @param {number} score - Composite trend score (0-100)
+ * @returns {'noise' | 'emerging_trend' | 'rising_trend' | 'hot_trend' | 'viral'}
  */
-function classifyTrend(trend, patternScore) {
-  const { replication_count, velocity_score, engagement_rate } = trend;
-
-  if (replication_count >= 20 && patternScore >= 15) {
-    return 'confirmed_trend';
-  }
-  if (replication_count >= 5 && velocity_score >= 40) {
-    return 'emerging_trend';
-  }
-  // viral_moment must be checked before brand_opportunity since
-  // velocity >= 60 would also match brand_opportunity's velocity >= 50
-  if (velocity_score >= 60 && replication_count < 5) {
-    return 'viral_moment';
-  }
-  if (engagement_rate >= 40 || velocity_score >= 50) {
-    return 'brand_opportunity';
-  }
+function classifyTrend(score) {
+  if (score >= 80) return 'viral';
+  if (score >= 60) return 'hot_trend';
+  if (score >= 35) return 'rising_trend';
+  if (score >= 15) return 'emerging_trend';
   return 'noise';
 }
 
@@ -127,11 +112,12 @@ function assignUrgencyLevel(lifecycleStage, hoursOld) {
 
 /**
  * Calculates the composite trend score (0-100) from multiple dimensions.
+ * Calibrated for TikTok FYP content scale (not viral-scale).
  *
  * Weights:
- * - Replication component (35%): replicationCount normalized to 0-100, capped at 100 creators
+ * - Replication component (35%): replicationCount normalized to 0-100, capped at 20 creators
  * - Velocity (25%): velocityScore as-is
- * - Engagement quality (20%): engagementRate / 30 * 100, capped at 100
+ * - Engagement quality (20%): engagementRate / 10 * 100, capped at 100
  * - Pattern (15%): patternScore as-is
  * - Raw engagement (5%): same as engagement quality
  *
@@ -142,11 +128,11 @@ function assignUrgencyLevel(lifecycleStage, hoursOld) {
  * @returns {number} Composite score 0-100, rounded to 2 decimal places.
  */
 function compositeScore(engagementRate, velocityScore, replicationCount, patternScore) {
-  // Normalize replication: 0-100 creators mapped to 0-100 score
-  const replicationNorm = Math.min((replicationCount / 100) * 100, 100);
+  // Normalize replication: 0-20 creators mapped to 0-100 score
+  const replicationNorm = Math.min((replicationCount / 20) * 100, 100);
 
-  // Normalize engagement quality: 30% engagement rate = 100 score
-  const engagementQuality = Math.min((engagementRate / 30) * 100, 100);
+  // Normalize engagement quality: 10% engagement rate = 100 score
+  const engagementQuality = Math.min((engagementRate / 10) * 100, 100);
 
   const score =
     replicationNorm * 0.35 +

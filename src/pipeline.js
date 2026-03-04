@@ -223,11 +223,7 @@ async function runPipeline() {
         const lifecycleStage = calculateLifecycleStage(snapshots, replicationCount);
 
         // --- Classification ---
-        const classification = classifyTrend({
-          engagement_rate: engagementRate,
-          velocity_score: velocityScore,
-          replication_count: replicationCount,
-        }, patternScore);
+        const classification = classifyTrend(composite);
 
         // --- Urgency ---
         const hoursOld = (Date.now() - firstSeenAt.getTime()) / (1000 * 60 * 60);

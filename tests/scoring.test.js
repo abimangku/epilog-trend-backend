@@ -250,60 +250,32 @@ describe('getReplicationCount', () => {
 // ===========================================================================
 
 describe('classifyTrend', () => {
-  test('confirmed_trend: replication >= 20 AND patternScore >= 15', () => {
-    expect(classifyTrend(
-      { replication_count: 20, velocity_score: 10, engagement_rate: 5 }, 15
-    )).toBe('confirmed_trend');
+  test('noise: score < 15', () => {
+    expect(classifyTrend(0)).toBe('noise');
+    expect(classifyTrend(14.99)).toBe('noise');
   });
 
-  test('confirmed_trend at exact thresholds', () => {
-    expect(classifyTrend(
-      { replication_count: 20, velocity_score: 0, engagement_rate: 0 }, 15
-    )).toBe('confirmed_trend');
+  test('emerging_trend: score 15-34.99', () => {
+    expect(classifyTrend(15)).toBe('emerging_trend');
+    expect(classifyTrend(25)).toBe('emerging_trend');
+    expect(classifyTrend(34.99)).toBe('emerging_trend');
   });
 
-  test('emerging_trend: replication >= 5 AND velocity >= 40', () => {
-    expect(classifyTrend(
-      { replication_count: 5, velocity_score: 40, engagement_rate: 5 }, 5
-    )).toBe('emerging_trend');
+  test('rising_trend: score 35-59.99', () => {
+    expect(classifyTrend(35)).toBe('rising_trend');
+    expect(classifyTrend(50)).toBe('rising_trend');
+    expect(classifyTrend(59.99)).toBe('rising_trend');
   });
 
-  test('brand_opportunity: engagement_rate >= 40', () => {
-    expect(classifyTrend(
-      { replication_count: 2, velocity_score: 10, engagement_rate: 40 }, 3
-    )).toBe('brand_opportunity');
+  test('hot_trend: score 60-79.99', () => {
+    expect(classifyTrend(60)).toBe('hot_trend');
+    expect(classifyTrend(70)).toBe('hot_trend');
+    expect(classifyTrend(79.99)).toBe('hot_trend');
   });
 
-  test('brand_opportunity: velocity_score >= 50', () => {
-    expect(classifyTrend(
-      { replication_count: 2, velocity_score: 50, engagement_rate: 5 }, 3
-    )).toBe('brand_opportunity');
-  });
-
-  test('viral_moment: velocity >= 60 AND replication < 5', () => {
-    expect(classifyTrend(
-      { replication_count: 4, velocity_score: 60, engagement_rate: 5 }, 3
-    )).toBe('viral_moment');
-  });
-
-  test('noise: everything else', () => {
-    expect(classifyTrend(
-      { replication_count: 2, velocity_score: 10, engagement_rate: 5 }, 3
-    )).toBe('noise');
-  });
-
-  test('priority ordering: confirmed_trend beats emerging_trend', () => {
-    // Matches both confirmed_trend and emerging_trend criteria
-    expect(classifyTrend(
-      { replication_count: 25, velocity_score: 50, engagement_rate: 50 }, 20
-    )).toBe('confirmed_trend');
-  });
-
-  test('priority ordering: emerging_trend beats brand_opportunity', () => {
-    // replication=5, velocity=50 matches both emerging_trend and brand_opportunity
-    expect(classifyTrend(
-      { replication_count: 5, velocity_score: 50, engagement_rate: 50 }, 5
-    )).toBe('emerging_trend');
+  test('viral: score >= 80', () => {
+    expect(classifyTrend(80)).toBe('viral');
+    expect(classifyTrend(100)).toBe('viral');
   });
 });
 
@@ -419,44 +391,40 @@ describe('compositeScore', () => {
     expect(compositeScore(0, 0, 0, 0)).toBe(0);
   });
 
-  test('known inputs produce expected weighted output', () => {
-    // engagementRate=15, velocityScore=60, replicationCount=50, patternScore=80
-    // replicationNorm = 50/100*100 = 50
-    // engagementQuality = 15/30*100 = 50
-    // score = 50*0.35 + 60*0.25 + 50*0.20 + 80*0.15 + 50*0.05
-    //       = 17.5    + 15      + 10      + 12      + 2.5
-    //       = 57.0
-    expect(compositeScore(15, 60, 50, 80)).toBeCloseTo(57.0);
+  test('typical FYP video: 5% engagement, velocity 30, 3 replications, pattern 10', () => {
+    // replicationNorm = (3/20)*100 = 15, engQuality = (5/10)*100 = 50
+    // 15*0.35 + 30*0.25 + 50*0.20 + 10*0.15 + 50*0.05 = 5.25+7.5+10+1.5+2.5 = 26.75
+    expect(compositeScore(5, 30, 3, 10)).toBeCloseTo(26.75);
   });
 
-  test('max replication capped at 100', () => {
-    // replicationCount=200 -> replicationNorm = min(200, 100) = 100
-    // engagementQuality = 30/30*100 = 100
-    // score = 100*0.35 + 100*0.25 + 100*0.20 + 100*0.15 + 100*0.05 = 100
-    expect(compositeScore(30, 100, 200, 100)).toBe(100);
+  test('strong FYP video: 8% engagement, velocity 60, 10 replications, pattern 40', () => {
+    // replicationNorm = (10/20)*100 = 50, engQuality = (8/10)*100 = 80
+    // 50*0.35 + 60*0.25 + 80*0.20 + 40*0.15 + 80*0.05 = 17.5+15+16+6+4 = 58.5
+    expect(compositeScore(8, 60, 10, 40)).toBeCloseTo(58.5);
   });
 
-  test('capped at 100 even with extreme inputs', () => {
+  test('caps at 100', () => {
+    expect(compositeScore(100, 100, 200, 100)).toBe(100);
+  });
+
+  test('over-cap inputs still cap at 100', () => {
     expect(compositeScore(100, 100, 1000, 100)).toBe(100);
   });
 
-  test('engagement quality normalization', () => {
-    // engagementRate=60 -> engagementQuality = min(60/30*100, 100) = 100 (capped)
-    // replicationNorm = 0
-    // score = 0*0.35 + 0*0.25 + 100*0.20 + 0*0.15 + 100*0.05 = 25
-    expect(compositeScore(60, 0, 0, 0)).toBeCloseTo(25);
+  test('engagement-only: 10% engagement', () => {
+    // engQuality = 100, replicationNorm = 0
+    // 0*0.35 + 0*0.25 + 100*0.20 + 0*0.15 + 100*0.05 = 25
+    expect(compositeScore(10, 0, 0, 0)).toBeCloseTo(25);
   });
 
-  test('replication dominance (35% weight)', () => {
-    // Only replication: 100 creators, everything else 0
+  test('replication-only: 20 replications', () => {
     // replicationNorm = 100
-    // score = 100*0.35 = 35
-    expect(compositeScore(0, 0, 100, 0)).toBeCloseTo(35);
+    // 100*0.35 = 35
+    expect(compositeScore(0, 0, 20, 0)).toBeCloseTo(35);
   });
 
-  test('velocity dominance (25% weight)', () => {
-    // Only velocity: 100, everything else 0
-    // score = 100*0.25 = 25
+  test('velocity-only: velocity 100', () => {
+    // 100*0.25 = 25
     expect(compositeScore(0, 100, 0, 0)).toBeCloseTo(25);
   });
 });
