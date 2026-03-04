@@ -381,6 +381,10 @@ async function scrapeOnce(options = {}) {
           audio_title: music.title,
           scraped_at: new Date().toISOString(),
           screenshot_path: screenshotPath,
+          thumbnail_url: jsMatch ? (jsMatch.coverUrl || null) : null,
+          video_embed_url: jsMatch && jsMatch.videoId
+            ? `https://www.tiktok.com/embed/v2/${jsMatch.videoId}`
+            : null,
         };
 
         videos.push(video);
@@ -498,6 +502,7 @@ async function _extractVideoItemsFromJsState(page) {
                 comments: (item.stats && item.stats.commentCount) || 0,
                 shares: (item.stats && item.stats.shareCount) || 0,
                 bookmarks: (item.stats && item.stats.collectCount) || 0,
+                coverUrl: (item.video && (item.video.originCover || item.video.cover || item.video.dynamicCover)) || null,
               });
             }
           }
@@ -558,6 +563,7 @@ async function _extractVideoItemsFromJsState(page) {
  */
 function _normalizeApiItem(item) {
   if (!item || !item.id || !item.author) return null;
+  const video = item.video || {};
   return {
     source: 'api',
     videoId: item.id,
@@ -568,6 +574,7 @@ function _normalizeApiItem(item) {
     comments: (item.stats && item.stats.commentCount) || 0,
     shares: (item.stats && item.stats.shareCount) || 0,
     bookmarks: parseInt((item.stats && item.stats.collectCount) || 0, 10) || 0,
+    coverUrl: video.originCover || video.cover || video.dynamicCover || null,
   };
 }
 
