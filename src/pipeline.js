@@ -253,6 +253,8 @@ async function runPipeline() {
           trend_score: composite,
           classification,
           urgency_level: urgencyLevel,
+          thumbnail_url: video.thumbnail_url || null,
+          video_embed_url: video.video_embed_url || null,
         };
 
         // --- Upsert trend to Supabase ---

@@ -534,6 +534,7 @@ async function _extractVideoItemsFromJsState(page) {
                   comments: (item.stats && item.stats.commentCount) || 0,
                   shares: (item.stats && item.stats.shareCount) || 0,
                   bookmarks: parseInt(item.stats && item.stats.collectCount, 10) || 0,
+                  coverUrl: (item.video && (item.video.originCover || item.video.cover || item.video.dynamicCover)) || null,
                 });
               }
             }
