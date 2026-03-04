@@ -181,7 +181,8 @@ Respond with this JSON:
   "virality_score": 0 to 100,
   "brand_safety_score": 0 to 100,
   "replication_signal_score": 0 to 100,
-  "trash_check": { "passed": true/false, "reasons": ["reason if failed"] }
+  "trash_check": { "passed": true/false, "reasons": ["reason if failed"] },
+  "recommended_action": "One of: 'Act immediately', 'Prepare content', 'Monitor closely', 'Watch passively', 'Skip'"
 }`;
 
   // Build message content — multimodal if screenshot available
@@ -230,8 +231,8 @@ Respond with this JSON:
       summary: parsed.summary || '',
       key_insights: parsed.key_insights || [],
       brand_relevance_notes: parsed.cultural_context || '',
-      recommended_action: '',
-      confidence: parsed.confidence || 0,
+      recommended_action: parsed.recommended_action || '',
+      confidence: Math.round((parsed.confidence || 0) * 100),
       relevance_score: parsed.relevance_score || 0,
       virality_score: parsed.virality_score || 0,
       brand_safety_score: parsed.brand_safety_score || 100,
@@ -340,7 +341,7 @@ Respond with this JSON:
       brand_priorities: parsed.brand_priorities || {},
       cultural_pulse: parsed.cultural_pulse || '',
       taste_check: parsed.taste_check || '',
-      confidence: 0.8,
+      confidence: 80,
       model_version: model,
     };
   } catch (err) {
