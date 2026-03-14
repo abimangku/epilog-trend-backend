@@ -200,9 +200,41 @@ async function sendRaw(text) {
   return ok;
 }
 
+// ---------------------------------------------------------------------------
+// alertSelectorHealth
+// ---------------------------------------------------------------------------
+
+/** Last selector health alert timestamp (throttle: 1 per 24h) */
+let lastSelectorAlertAt = 0;
+
+/**
+ * Sends Slack alert when TikTok selectors fail health check.
+ * Throttled to max 1 alert per 24 hours.
+ *
+ * @param {string} details - Description of which selectors failed
+ * @returns {Promise<boolean>} Whether alert was sent
+ */
+async function alertSelectorHealth(details) {
+  const now = Date.now();
+  if (now - lastSelectorAlertAt < 24 * 60 * 60 * 1000) {
+    logger.log(MOD, 'Selector health alert throttled (already sent in last 24h)');
+    return false;
+  }
+
+  const sent = await sendRaw(
+    ':rotating_light: *TikTok Selector Health Check FAILED*\n' +
+    '```\n' + details + '\n```\n' +
+    'The scraper may not be collecting data. Check `src/scrapers/tiktok.js` SELECTORS.'
+  );
+
+  if (sent) lastSelectorAlertAt = now;
+  return sent;
+}
+
 module.exports = {
   notifyActNow,
   notifyScraperDown,
   notifyDailySummary,
   sendRaw,
+  alertSelectorHealth,
 };

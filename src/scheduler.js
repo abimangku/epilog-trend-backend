@@ -12,6 +12,7 @@ const logger = require('./logger');
 const { runPipelineOnce } = require('./pipeline');
 const { checkSelectors } = require('./scrapers/health-check');
 const { createPipelineEvent } = require('./database/supabase');
+const { alertSelectorHealth } = require('./notifications/slack');
 const { cleanupOldThumbnails } = require('./media/thumbnail-proxy');
 
 const MOD = 'SCHEDULER';
@@ -237,7 +238,7 @@ function start() {
 
   // Health check: every 6 hours
   healthCron = cron.schedule('0 */6 * * *', () => {
-    checkSelectors({ createPipelineEvent }).catch((err) => {
+    checkSelectors({ createPipelineEvent, alertSelectorHealth }).catch((err) => {
       logger.error(MOD, 'Health check cron failed', err);
     });
   });

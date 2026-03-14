@@ -8,6 +8,7 @@ const MOD = 'HEALTH_CHECK';
  *
  * @param {object} [deps] - Injectable dependencies for testing
  * @param {Function} [deps.createPipelineEvent] - Event logger
+ * @param {Function} [deps.alertSelectorHealth] - Slack alert for selector failures
  * @returns {Promise<{ ok: boolean, details: string }>}
  */
 async function checkSelectors(deps = {}) {
@@ -36,16 +37,38 @@ async function checkSelectors(deps = {}) {
       if (deps.createPipelineEvent) {
         await deps.createPipelineEvent(null, 'health_check', 'critical', msg);
       }
+      if (deps.alertSelectorHealth) {
+        try {
+          await deps.alertSelectorHealth(msg);
+        } catch (slackErr) {
+          logger.warn(MOD, `Failed to send selector health Slack alert: ${slackErr.message}`);
+        }
+      }
       return { ok: false, details: msg };
     }
 
-    logger.log(MOD, `Health check passed: ${articles.length} articles found`);
-    return { ok: true, details: `${articles.length} articles found` };
+    const successMsg = `${articles.length} articles found`;
+    logger.log(MOD, `Health check passed: ${successMsg}`);
+    if (deps.createPipelineEvent) {
+      try {
+        await deps.createPipelineEvent(null, 'selector_health_ok', 'info', successMsg);
+      } catch (eventErr) {
+        logger.warn(MOD, `Failed to write selector health event: ${eventErr.message}`);
+      }
+    }
+    return { ok: true, details: successMsg };
   } catch (err) {
     const msg = `Health check failed: ${err.message}`;
     logger.error(MOD, msg, err);
     if (deps.createPipelineEvent) {
       await deps.createPipelineEvent(null, 'health_check', 'critical', msg);
+    }
+    if (deps.alertSelectorHealth) {
+      try {
+        await deps.alertSelectorHealth(msg);
+      } catch (slackErr) {
+        logger.warn(MOD, `Failed to send selector health Slack alert: ${slackErr.message}`);
+      }
     }
     return { ok: false, details: msg };
   } finally {
