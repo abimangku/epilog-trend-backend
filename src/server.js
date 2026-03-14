@@ -123,16 +123,48 @@ app.get('/health', async (req, res) => {
     // Non-critical — report 0
   }
 
-  const status = supabaseOk ? 'ok' : 'degraded';
-  const statusCode = supabaseOk ? 200 : 503;
+  // Get last pipeline run
+  let lastPipelineRun = null;
+  try {
+    const { data } = await supabase
+      .from('pipeline_runs')
+      .select('started_at, completed_at, status, videos_scraped, videos_analyzed')
+      .order('started_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    lastPipelineRun = data;
+  } catch {
+    // Non-critical
+  }
+
+  // Determine health status
+  const lastRunAge = lastPipelineRun?.completed_at
+    ? (Date.now() - new Date(lastPipelineRun.completed_at).getTime()) / 1000
+    : null;
+
+  let status = 'healthy';
+  if (!supabaseOk) status = 'unhealthy';
+  else if (!lastPipelineRun || lastRunAge > 6 * 3600) status = 'degraded';
+  else if (lastPipelineRun.status === 'failed') status = 'degraded';
+
+  const statusCode = status === 'unhealthy' ? 503 : 200;
+  const mem = process.memoryUsage();
 
   res.status(statusCode).json({
     status,
     supabase: supabaseOk,
-    lastScrape: lastRun,
+    lastPipelineRun: lastPipelineRun ? {
+      startedAt: lastPipelineRun.started_at,
+      completedAt: lastPipelineRun.completed_at,
+      status: lastPipelineRun.status,
+      videosScraped: lastPipelineRun.videos_scraped,
+      videosAnalyzed: lastPipelineRun.videos_analyzed,
+    } : null,
+    pipelineRunning,
     trendsCount,
     uptime: Math.round(process.uptime()),
-    version: '1.0.0',
+    memory_mb: Math.round(mem.heapUsed / 1024 / 1024),
+    version: '1.1.0',
   });
 });
 
