@@ -18,7 +18,7 @@ export function Brand() {
   const { data: synthesis } = useCrossTrendSynthesis();
 
   // Fetch brand fits for this brand
-  const { data: brandFits, isLoading } = useQuery({
+  const { data: brandFits, isLoading, error, refetch } = useQuery({
     queryKey: ['brand-fits-page', brandName],
     queryFn: async () => {
       const { data, error } = await supabase
@@ -71,7 +71,20 @@ export function Brand() {
         </div>
       </div>
 
-      {isLoading ? (
+      {error ? (
+        <div className="text-center py-20">
+          <p className="text-[14px] mb-3" style={{ color: 'var(--text-secondary)' }}>
+            Something went wrong
+          </p>
+          <button
+            onClick={() => refetch()}
+            className="px-4 py-2 rounded-lg text-[12px]"
+            style={{ background: 'var(--bg-card)', border: '1px solid var(--border-card)', color: 'var(--text-primary)' }}
+          >
+            Retry
+          </button>
+        </div>
+      ) : isLoading ? (
         <div className="space-y-4">
           <Skeleton className="h-48 w-full" />
           <Skeleton className="h-16 w-full" />

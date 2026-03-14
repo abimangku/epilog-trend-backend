@@ -7,7 +7,7 @@ import { Plus, Trash2 } from 'lucide-react';
 import type { Trend } from '../types';
 
 export function Saved() {
-  const { data: savedItems, isLoading: savedLoading } = useSavedItems();
+  const { data: savedItems, isLoading: savedLoading, error: savedError, refetch: refetchSaved } = useSavedItems();
   const { data: collections } = useCollections();
   const { data: trends } = useTrends({ days: 30, limit: 200 });
   const createCollection = useCreateCollection();
@@ -108,7 +108,20 @@ export function Saved() {
         <div className="text-[11px] uppercase tracking-wider font-medium mb-3" style={{ color: 'var(--text-muted)' }}>
           All Saved
         </div>
-        {savedLoading ? (
+        {savedError ? (
+          <div className="text-center py-20">
+            <p className="text-[14px] mb-3" style={{ color: 'var(--text-secondary)' }}>
+              Something went wrong
+            </p>
+            <button
+              onClick={() => refetchSaved()}
+              className="px-4 py-2 rounded-lg text-[12px]"
+              style={{ background: 'var(--bg-card)', border: '1px solid var(--border-card)', color: 'var(--text-primary)' }}
+            >
+              Retry
+            </button>
+          </div>
+        ) : savedLoading ? (
           <div className="space-y-2">
             {Array.from({ length: 3 }).map((_, i) => (
               <Skeleton key={i} className="h-16 w-full" />
@@ -116,9 +129,9 @@ export function Saved() {
           </div>
         ) : savedTrends.length === 0 ? (
           <div className="text-center py-16">
-            <p className="text-[14px]" style={{ color: 'var(--text-secondary)' }}>No saved trends yet</p>
+            <p className="text-[14px]" style={{ color: 'var(--text-secondary)' }}>Nothing saved yet</p>
             <p className="text-[12px] mt-1" style={{ color: 'var(--text-muted)' }}>
-              Click the bookmark icon on any trend to save it here
+              Use the bookmark icon on any content to save it here
             </p>
           </div>
         ) : (

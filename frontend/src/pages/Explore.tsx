@@ -20,7 +20,7 @@ export function Explore() {
   const [classificationFilter, setClassificationFilter] = useState<Classification | null>(null);
   const viewMode = useUIStore((s) => s.viewMode);
 
-  const { data: trends, isLoading } = useTrends({ days: 14, limit: 200 });
+  const { data: trends, isLoading, error, refetch } = useTrends({ days: 14, limit: 200 });
 
   // Filter trends
   const filtered = useMemo(() => {
@@ -105,7 +105,20 @@ export function Explore() {
       )}
 
       {/* Content */}
-      {isLoading ? (
+      {error ? (
+        <div className="text-center py-20">
+          <p className="text-[14px] mb-3" style={{ color: 'var(--text-secondary)' }}>
+            Something went wrong
+          </p>
+          <button
+            onClick={() => refetch()}
+            className="px-4 py-2 rounded-lg text-[12px]"
+            style={{ background: 'var(--bg-card)', border: '1px solid var(--border-card)', color: 'var(--text-primary)' }}
+          >
+            Retry
+          </button>
+        </div>
+      ) : isLoading ? (
         <div className="grid grid-cols-3 gap-4">
           {Array.from({ length: 9 }).map((_, i) => (
             <CardSkeleton key={i} />
@@ -119,6 +132,15 @@ export function Explore() {
           <p className="text-[12px]" style={{ color: 'var(--text-muted)' }}>
             Try adjusting your search or filters
           </p>
+          {(lifecycleFilter || classificationFilter || search) && (
+            <button
+              onClick={() => { setLifecycleFilter(null); setClassificationFilter(null); setSearch(''); }}
+              className="mt-3 px-4 py-2 rounded-lg text-[12px]"
+              style={{ background: 'var(--bg-card)', border: '1px solid var(--border-card)', color: 'var(--text-primary)' }}
+            >
+              Clear filters
+            </button>
+          )}
         </div>
       ) : viewMode === 'grid' ? (
         <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">

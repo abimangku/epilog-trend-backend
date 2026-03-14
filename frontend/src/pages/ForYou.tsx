@@ -23,7 +23,7 @@ function TrendSection({ title, description, trends }: { title: string; descripti
 }
 
 export function ForYou() {
-  const { data, isLoading } = useForYou();
+  const { data, isLoading, error, refetch } = useForYou();
 
   return (
     <div className="p-7 max-w-[800px]">
@@ -36,7 +36,20 @@ export function ForYou() {
         </p>
       </div>
 
-      {isLoading ? (
+      {error ? (
+        <div className="text-center py-20">
+          <p className="text-[14px] mb-3" style={{ color: 'var(--text-secondary)' }}>
+            Something went wrong
+          </p>
+          <button
+            onClick={() => refetch()}
+            className="px-4 py-2 rounded-lg text-[12px]"
+            style={{ background: 'var(--bg-card)', border: '1px solid var(--border-card)', color: 'var(--text-primary)' }}
+          >
+            Retry
+          </button>
+        </div>
+      ) : isLoading ? (
         <div className="space-y-4">
           {Array.from({ length: 4 }).map((_, i) => (
             <Skeleton key={i} className="h-24 w-full" />

@@ -11,7 +11,7 @@ import type { ClientBrandFit } from '../types';
 export function Pulse() {
   useRealtimeTrends();
 
-  const { data: trends, isLoading: trendsLoading } = useTrends({ days: 7, limit: 50 });
+  const { data: trends, isLoading: trendsLoading, error: trendsError, refetch: refetchTrends } = useTrends({ days: 7, limit: 50 });
   const { data: synthesis, isLoading: synthLoading } = useCrossTrendSynthesis();
   const { data: audioPatterns } = useAudioPatterns(6);
   const { data: formatPatterns } = useFormatPatterns(14);
@@ -55,6 +55,30 @@ export function Pulse() {
         </p>
       </div>
 
+      {trendsError ? (
+        <div className="text-center py-20">
+          <p className="text-[14px] mb-3" style={{ color: 'var(--text-secondary)' }}>
+            Something went wrong
+          </p>
+          <button
+            onClick={() => refetchTrends()}
+            className="px-4 py-2 rounded-lg text-[12px]"
+            style={{ background: 'var(--bg-card)', border: '1px solid var(--border-card)', color: 'var(--text-primary)' }}
+          >
+            Retry
+          </button>
+        </div>
+      ) : !trendsLoading && (!trends || trends.length === 0) ? (
+        <div className="text-center py-20">
+          <p className="text-[14px] mb-1" style={{ color: 'var(--text-secondary)' }}>
+            No trends yet — waiting for first scan
+          </p>
+          <p className="text-[12px]" style={{ color: 'var(--text-muted)' }}>
+            The pipeline will populate this page after the first scrape
+          </p>
+        </div>
+      ) : (
+        <>
       {/* Section 1: Cultural Snapshot */}
       <section className="mb-8">
         <div className="text-[11px] uppercase tracking-wider font-medium mb-3" style={{ color: 'var(--text-muted)' }}>
@@ -202,6 +226,8 @@ export function Pulse() {
           </p>
         )}
       </section>
+        </>
+      )}
     </div>
   );
 }

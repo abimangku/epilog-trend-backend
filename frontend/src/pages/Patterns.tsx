@@ -6,8 +6,8 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 
 
 export function Patterns() {
   const [days, setDays] = useState(14);
-  const { data: formatPatterns, isLoading: formatsLoading } = useFormatPatterns(days);
-  const { data: audioPatterns, isLoading: audioLoading } = useAudioPatterns(6);
+  const { data: formatPatterns, isLoading: formatsLoading, error: formatsError, refetch: refetchFormats } = useFormatPatterns(days);
+  const { data: audioPatterns, isLoading: audioLoading, error: audioError, refetch: refetchAudio } = useAudioPatterns(6);
   const { data: trends } = useTrends({ days, limit: 200 });
 
   // Calculate lifecycle distribution from trends
@@ -60,7 +60,20 @@ export function Patterns() {
         <div className="text-[11px] uppercase tracking-wider font-medium mb-3" style={{ color: 'var(--text-muted)' }}>
           Format Distribution
         </div>
-        {formatsLoading ? (
+        {formatsError ? (
+          <div className="text-center py-20">
+            <p className="text-[14px] mb-3" style={{ color: 'var(--text-secondary)' }}>
+              Something went wrong
+            </p>
+            <button
+              onClick={() => refetchFormats()}
+              className="px-4 py-2 rounded-lg text-[12px]"
+              style={{ background: 'var(--bg-card)', border: '1px solid var(--border-card)', color: 'var(--text-primary)' }}
+            >
+              Retry
+            </button>
+          </div>
+        ) : formatsLoading ? (
           <Skeleton className="h-48 w-full" />
         ) : formatPatterns && formatPatterns.length > 0 ? (
           <div className="rounded-xl p-5" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-card)' }}>
@@ -121,7 +134,20 @@ export function Patterns() {
         <div className="text-[11px] uppercase tracking-wider font-medium mb-3" style={{ color: 'var(--text-muted)' }}>
           Audio Momentum
         </div>
-        {audioLoading ? (
+        {audioError ? (
+          <div className="text-center py-20">
+            <p className="text-[14px] mb-3" style={{ color: 'var(--text-secondary)' }}>
+              Something went wrong
+            </p>
+            <button
+              onClick={() => refetchAudio()}
+              className="px-4 py-2 rounded-lg text-[12px]"
+              style={{ background: 'var(--bg-card)', border: '1px solid var(--border-card)', color: 'var(--text-primary)' }}
+            >
+              Retry
+            </button>
+          </div>
+        ) : audioLoading ? (
           <Skeleton className="h-32 w-full" />
         ) : audioPatterns && audioPatterns.length > 0 ? (
           <div className="rounded-xl divide-y" style={{ background: 'var(--bg-card)', border: '1px solid var(--border-card)' }}>
