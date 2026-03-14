@@ -10,6 +10,8 @@ process.env.TZ = 'Asia/Jakarta';
 const cron = require('node-cron');
 const logger = require('./logger');
 const { runPipelineOnce } = require('./pipeline');
+const { checkSelectors } = require('./scrapers/health-check');
+const { createPipelineEvent } = require('./database/supabase');
 
 const MOD = 'SCHEDULER';
 
@@ -43,6 +45,7 @@ let dailyStats = { new: 0, updated: 0, errors: 0 };
 let mainCron = null;
 let resetCron = null;
 let briefCron = null;
+let healthCron = null;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -230,7 +233,14 @@ function start() {
     });
   });
 
-  logger.log(MOD, 'Cron jobs registered: main (every min), daily-reset (00:00), daily-brief (08:00)');
+  // Health check: every 6 hours
+  healthCron = cron.schedule('0 */6 * * *', () => {
+    checkSelectors({ createPipelineEvent }).catch((err) => {
+      logger.error(MOD, 'Health check cron failed', err);
+    });
+  });
+
+  logger.log(MOD, 'Cron jobs registered: main (every min), daily-reset (00:00), daily-brief (08:00), health-check (every 6h)');
 }
 
 /**
@@ -241,6 +251,7 @@ function stop() {
   if (mainCron) { mainCron.stop(); mainCron = null; }
   if (resetCron) { resetCron.stop(); resetCron = null; }
   if (briefCron) { briefCron.stop(); briefCron = null; }
+  if (healthCron) { healthCron.stop(); healthCron = null; }
   logger.log(MOD, 'All cron jobs stopped');
 }
 
