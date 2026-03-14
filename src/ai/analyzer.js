@@ -350,33 +350,52 @@ async function crossTrendSynthesis(analyzedTrends) {
     const v = t.video;
     const a = t.analysis || {};
     return `[${i + 1}] @${v.author} — "${(v.title || '').slice(0, 80)}"
-  Likes: ${v.likes} | Comments: ${v.comments} | Shares: ${v.shares}
+  Likes: ${v.likes} | Comments: ${v.comments} | Shares: ${v.shares} | Views: ${v.views || 'N/A'}
+  Audio: ${v.audio_title || 'Unknown'}
   Hashtags: ${(v.hashtags || []).join(', ')}
   AI Summary: ${(a.summary || 'No analysis').slice(0, 150)}
   Why Trending: ${(a.why_trending || 'Unknown').slice(0, 150)}
-  Cultural Context: ${(a.cultural_context || 'Unknown').slice(0, 150)}`;
+  Cultural Context: ${(a.cultural_context || 'Unknown').slice(0, 150)}
+  Virality Trajectory: ${a.virality_trajectory || 'Unknown'}`;
   }).join('\n\n');
 
-  const prompt = `You are a senior trend strategist for Epilog Creative in Jakarta, Indonesia. Your clients are Godrej Indonesia brands: Stella (air freshener), HIT Kecoa (insecticide), NYU (hair color).
+  const prompt = `You are a senior cross-trend strategist for Epilog Creative in Jakarta, Indonesia. Your clients are three Godrej Indonesia brands: Stella (air freshener), HIT Kecoa (insecticide), NYU (hair color). You are analyzing the Indonesian TikTok FYP — not global TikTok.
 
-Look at ALL these surviving TikTok trends together and identify strategic patterns.
+Your job is to think ACROSS trends, not about individual videos. Look at the full batch below and extract strategic intelligence.
 
-SURVIVING TRENDS (${analyzedTrends.length} total):
+SURVIVING TRENDS FROM THIS FYP SCRAPE (${analyzedTrends.length} total):
 ${trendSummaries}
 
-Respond with this JSON:
+ANALYSIS FRAMEWORK — answer each of these:
+
+1. FORMAT CONVERGENCE
+Are multiple unrelated topics using the same video format? For example, are 3 different niches (cooking, fashion, comedy) all using POV skits, or all using the "get ready with me" structure, or all using split-screen duets? Format convergence signals that a template is becoming universal — brands can hijack the format without being tied to a single niche. Identify any converging formats and list which trend indices share them.
+
+2. AUDIO CLUSTERING
+Are different creators using the same audio track in different contexts? When one sound crosses niches, it signals peak virality and a narrow window for brand hijacking before the audio feels stale. Note which audios appear more than once and what it means for brand content timing. Even if no audio repeats in this batch, flag any audio that feels primed for crossover based on its usage context.
+
+3. TIMING PATTERNS
+Are certain content types clustering around cultural or calendar moments? In Indonesia this includes Ramadan, Lebaran/Idul Fitri, payday cycles (tanggal gajian), back-to-school (masuk sekolah), year-end/Natalan, 17 Agustus, or even daily patterns like sahur/buka puasa content. Flag any timing signals and what they mean for the next 1-2 weeks of content planning.
+
+4. CONTRARIAN TAKES
+What trend does everyone think is big but the data actually says is declining or overhyped? Look at engagement velocity, share-to-like ratios, and virality trajectories. If a trend has high likes but low shares and a "declining" trajectory, it may be past peak. Call out overhyped trends honestly — this is the most valuable signal for clients who want to avoid wasting budget on dying formats. Also flag any quiet trend that the data suggests is undervalued.
+
+5. INDONESIAN CREATOR CULTURE CONTEXT
+Frame everything through the lens of Indonesian TikTok: FYP ID algorithm behavior, konten kreator culture, brand hijacking patterns unique to Indonesian creators (e.g., organic product placement in daily vlogs, "jujur review" formats, warung/kos-kosan settings). What does this batch tell us about where Indonesian TikTok culture is heading?
+
+Respond with this JSON (no extra keys):
 {
   "meta_trends": [
-    { "name": "Trend pattern name", "description": "What connects these trends", "trend_indices": [1, 3, 5] }
+    { "name": "Pattern name (e.g., 'POV format convergence')", "description": "What connects these trends — reference format convergence, audio clustering, or timing patterns where relevant", "trend_indices": [1, 3, 5] }
   ],
-  "emerging_patterns": ["Pattern 1 emerging across TikTok ID", "Pattern 2"],
-  "cultural_pulse": "A 2-3 sentence summary of what Indonesian TikTok culture feels like RIGHT NOW",
+  "emerging_patterns": ["Pattern 1 emerging across TikTok ID — be specific about format, audio, or cultural signal", "Pattern 2 — include contrarian or timing insight"],
+  "cultural_pulse": "A 2-3 sentence summary of what Indonesian TikTok culture feels like RIGHT NOW based on this batch. Reference specific creator behaviors, formats, or cultural moments. Do not be generic.",
   "brand_priorities": {
-    "Stella": "What Stella should focus on this cycle and why",
-    "HIT Kecoa": "What HIT Kecoa should focus on this cycle and why",
-    "NYU": "What NYU should focus on this cycle and why"
+    "Stella": "Specific action for Stella this cycle — reference which meta_trend or format to hijack, which audio to use, and timing. Include a contrarian warning if relevant.",
+    "HIT Kecoa": "Specific action for HIT Kecoa this cycle — same specificity as above.",
+    "NYU": "Specific action for NYU this cycle — same specificity as above."
   },
-  "taste_check": "Are these trends genuinely interesting or are we chasing noise? Honest assessment."
+  "taste_check": "Honest assessment: are these trends genuinely worth pursuing or are we chasing noise? Flag any overhyped trends by index. Flag any undervalued trends. Rate overall signal quality of this batch."
 }`;
 
   try {
@@ -385,7 +404,7 @@ Respond with this JSON:
       messages: [
         {
           role: 'system',
-          content: 'You are a trend strategy AI. Think across trends, not about individual videos. Identify the big picture. Always respond in valid JSON.',
+          content: 'You are a cross-trend synthesis AI for the Indonesian TikTok market. Think across trends, not about individual videos. Identify format convergence, audio clustering, timing patterns, and contrarian signals. Be specific and actionable. Always respond in valid JSON.',
         },
         { role: 'user', content: prompt },
       ],
