@@ -23,6 +23,9 @@ const logger = require('../logger');
 
 const MOD = 'SCRAPER';
 
+let lastScrapeEndTime = 0;
+const MIN_COOLDOWN_MS = 3 * 60 * 1000; // 3 minutes
+
 // ---------------------------------------------------------------------------
 // All TikTok FYP DOM selectors in one place.
 // Last verified: 2026-03-02 against live TikTok FYP (tiktok.com, locale id-ID).
@@ -178,6 +181,13 @@ function randomDelay(min, max) {
  * @returns {Promise<{ videos: object[], screenshots: object[] }>}
  */
 async function scrapeOnce(options = {}) {
+  const timeSinceLastScrape = Date.now() - lastScrapeEndTime;
+  if (timeSinceLastScrape < MIN_COOLDOWN_MS) {
+    const waitMs = MIN_COOLDOWN_MS - timeSinceLastScrape;
+    logger.warn(MOD, `Cooldown: waiting ${Math.round(waitMs / 1000)}s before next scrape`);
+    await new Promise((r) => setTimeout(r, waitMs));
+  }
+
   const maxVideos = options.maxVideos || CONFIG.maxVideos;
   const timeoutMs = options.timeoutMs || CONFIG.timeoutMs;
   const startTime = Date.now();
@@ -289,7 +299,11 @@ async function scrapeOnce(options = {}) {
     while (videos.length < maxVideos && scrollAttempts < maxScrollAttempts) {
       // Check timeout
       if (Date.now() - startTime > timeoutMs) {
-        logger.log(MOD, `Timeout reached (${timeoutMs}ms) — stopping with ${videos.length} videos`);
+        if (videos.length > 0) {
+          logger.warn(MOD, `Timeout reached — returning ${videos.length} partial results`);
+        } else {
+          logger.warn(MOD, `Timeout reached (${timeoutMs}ms) with 0 videos collected`);
+        }
         break;
       }
 
@@ -451,6 +465,7 @@ async function scrapeOnce(options = {}) {
   } catch (err) {
     logger.error(MOD, 'FYP scrape failed', err);
   } finally {
+    lastScrapeEndTime = Date.now();
     if (browser) {
       try {
         await browser.close();
