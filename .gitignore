@@ -8,3 +8,5 @@ logs/
 screenshots/
 debug/
 scripts/inspect-*.js
+.superpowers/
+docs/superpowers/
