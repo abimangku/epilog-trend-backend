@@ -1,7 +1,7 @@
 const express = require('express');
 const logger = require('../logger');
 const { supabase } = require('../database/supabase');
-const { detectFormats } = require('../patterns/formats');
+const { detectFormat } = require('../patterns/formats');
 
 const MOD = 'API:PATTERNS';
 const router = express.Router();
@@ -27,7 +27,7 @@ router.get('/formats', async (req, res) => {
 
     const formatCounts = {};
     for (const trend of trends) {
-      const formats = detectFormats(trend.title, trend.hashtags || []);
+      const formats = detectFormat(trend.title, trend.hashtags || []);
       for (const format of formats) {
         formatCounts[format] = (formatCounts[format] || 0) + 1;
       }
