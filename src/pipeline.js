@@ -1,7 +1,7 @@
 /**
  * Pipeline orchestrator — connects scraping, scoring, pattern detection,
  * 3-phase AI analysis, brand fit scoring, database persistence, and
- * notifications into a single run.
+ * pipeline event tracking into a single run.
  *
  * Flow:
  *   FYP Scrape + Screenshots
@@ -12,7 +12,7 @@
  *   → Phase 2: Deep Analysis (per-trend multimodal LLM)
  *   → Phase 3: Cross-Trend Synthesis (batch LLM meta-analysis)
  *   → Brand Fit scoring (per-trend, enriched with Phase 2 context)
- *   → Slack notifications
+ *   → Pipeline event tracking
  *   → Screenshot cleanup
  */
 
@@ -47,20 +47,14 @@ const {
   upsertTrendAnalysis,
   insertCrossTrendSynthesis,
   upsertBrandFits,
+  createPipelineRun,
+  updatePipelineRun,
+  createPipelineEvent,
+  checkConnection,
+  updateTrendThumbnail,
 } = require('./database/supabase');
 const { trashGate, deepAnalysis, crossTrendSynthesis } = require('./ai/analyzer');
 const { scoreBrandFit } = require('./ai/brand-fit');
-
-// Slack module may not be implemented yet — import defensively
-let notifyActNow = null;
-try {
-  const slack = require('./notifications/slack');
-  if (typeof slack.notifyActNow === 'function') {
-    notifyActNow = slack.notifyActNow;
-  }
-} catch {
-  // slack.js not yet implemented — notifications disabled
-}
 
 const MOD = 'PIPELINE';
 
@@ -134,13 +128,18 @@ async function runPipeline() {
     errors: 0,
   };
 
+  const runId = await createPipelineRun();
+  const runErrors = [];
+
   try {
     // -----------------------------------------------------------------------
     // Step 0 — Verify Supabase is reachable
     // -----------------------------------------------------------------------
-    const connected = await testConnection();
+    const connected = await checkConnection();
     if (!connected) {
-      logger.error(MOD, 'CRITICAL: Supabase unreachable — aborting pipeline');
+      logger.error(MOD, 'CRITICAL: Supabase unreachable after 3 attempts — aborting pipeline');
+      await createPipelineEvent(runId, 'startup', 'critical', 'Supabase unreachable — pipeline aborted');
+      await updatePipelineRun(runId, { status: 'failed', errors: [{ stage: 'startup', message: 'Supabase unreachable' }] });
       return stats;
     }
 
@@ -154,6 +153,8 @@ async function runPipeline() {
 
     if (videos.length === 0) {
       logger.warn(MOD, 'No videos scraped — returning early');
+      await createPipelineEvent(runId, 'scrape', 'warning', 'Zero videos scraped — possible rate limit or DOM change');
+      await updatePipelineRun(runId, { status: 'partial', videos_scraped: 0, errors: [{ stage: 'scrape', message: 'Zero videos' }] });
       return stats;
     }
 
@@ -172,7 +173,6 @@ async function runPipeline() {
     // We score every video and persist to Supabase before AI filtering.
     // This ensures we have a complete record even for filtered-out videos.
     const enrichedVideos = []; // { enrichedTrend, trend_id, video }
-    const actNowTrends = [];
 
     for (const video of videos) {
       try {
@@ -273,17 +273,25 @@ async function runPipeline() {
           shares: video.shares,
         });
 
+        // --- Proxy thumbnail to Supabase Storage ---
+        if (enrichedTrend.thumbnail_url) {
+          try {
+            const { proxyThumbnail } = require('./media/thumbnail-proxy');
+            const storageUrl = await proxyThumbnail(enrichedTrend.thumbnail_url, trend_id);
+            if (storageUrl) {
+              await updateTrendThumbnail(trend_id, storageUrl);
+            }
+          } catch (thumbErr) {
+            logger.warn(MOD, `Thumbnail proxy failed: ${enrichedTrend.title}`, thumbErr);
+          }
+        }
+
         // Track for AI pipeline
         enrichedVideos.push({
           enrichedTrend,
           trend_id,
           video,
         });
-
-        // Track confirmed_trend + act_now for Slack
-        if (classification === 'confirmed_trend' && urgencyLevel === 'act_now') {
-          actNowTrends.push(enrichedTrend);
-        }
 
       } catch (err) {
         stats.errors++;
@@ -331,6 +339,7 @@ async function runPipeline() {
           });
         }
       } catch (err) {
+        runErrors.push({ stage: 'deep_analysis', trendId: survivor.trend_id, error: err.message });
         logger.warn(MOD, `Deep analysis failed: ${survivor.enrichedTrend.title}`, err);
       }
     }
@@ -375,32 +384,13 @@ async function runPipeline() {
           stats.brand_fits += brandFits.length;
         }
       } catch (err) {
+        runErrors.push({ stage: 'brand_fit', trendId: at.trend_id, error: err.message });
         logger.warn(MOD, `Brand fit scoring failed: ${at.enrichedTrend.title}`, err);
       }
     }
 
     // -----------------------------------------------------------------------
-    // Step 8 — Slack notifications for act_now confirmed trends
-    // -----------------------------------------------------------------------
-    if (actNowTrends.length > 0) {
-      logger.log(MOD, `${actNowTrends.length} confirmed trends with act_now urgency`);
-
-      for (const trend of actNowTrends) {
-        try {
-          if (notifyActNow) {
-            await notifyActNow(trend);
-            logger.log(MOD, `Slack notification sent: ${trend.title}`);
-          } else {
-            logger.warn(MOD, `Slack not configured — skipped notification for: ${trend.title}`);
-          }
-        } catch (err) {
-          logger.warn(MOD, `Slack notification failed for: ${trend.title}`, err);
-        }
-      }
-    }
-
-    // -----------------------------------------------------------------------
-    // Step 9 — Cleanup screenshots (transient files)
+    // Step 8 — Cleanup screenshots (transient files)
     // -----------------------------------------------------------------------
     await cleanupScreenshots();
 
@@ -416,8 +406,24 @@ async function runPipeline() {
       errors: stats.errors,
     });
 
+    const runStatus = stats.errors > 0 ? 'partial' : 'success';
+    await updatePipelineRun(runId, {
+      status: runStatus,
+      videos_scraped: stats.scraped,
+      videos_passed_gate: stats.signals,
+      videos_analyzed: stats.analyzed,
+      videos_failed: stats.errors,
+      errors: runErrors,
+    });
+
+    await createPipelineEvent(runId, 'complete', 'info',
+      `Pipeline ${runStatus}: ${stats.scraped} scraped, ${stats.analyzed} analyzed, ${stats.errors} errors`);
+
   } catch (err) {
     logger.error(MOD, 'Pipeline failed', err);
+    runErrors.push({ stage: 'pipeline', error: err.message });
+    await updatePipelineRun(runId, { status: 'failed', errors: runErrors });
+    await createPipelineEvent(runId, 'pipeline', 'critical', `Pipeline crashed: ${err.message}`);
   }
 
   return stats;
