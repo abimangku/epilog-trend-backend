@@ -290,6 +290,7 @@ async function upsertTrendAnalysis(trendId, analysis) {
     why_trending: analysis.why_trending || '',
     trash_check: analysis.trash_check || { passed: true, reasons: [] },
     model_version: analysis.model_version,
+    analysis_version: analysis.analysis_version || null,
     analyzed_at: new Date().toISOString(),
   };
 

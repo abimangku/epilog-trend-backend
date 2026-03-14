@@ -15,6 +15,7 @@ const { withRetry } = require('../utils/retry');
 const MOD = 'AI_ANALYZER';
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const MODEL = 'google/gemini-2.0-flash-001';
+const ANALYSIS_VERSION = 'v2.0';
 
 /**
  * Standard headers for OpenRouter API calls.
@@ -178,7 +179,7 @@ async function deepAnalysis(video, screenshotPath) {
     return null;
   }
 
-  const prompt = `Analyze this TikTok trend for Indonesian brand marketing potential.
+  const prompt = `You are a senior TikTok trend analyst at Epilog Creative, a digital marketing agency in Jakarta. You live and breathe Indonesian TikTok culture. Analyze this trend with deep cultural specificity for our clients: Stella (air freshener), HIT Kecoa (insecticide), NYU (hair color) — all Godrej Indonesia brands targeting the Indonesian mass market.
 
 TREND DATA:
 - Author: @${video.author || 'unknown'}
@@ -198,16 +199,52 @@ TREND DATA:
 
 ${screenshotPath ? 'A screenshot of the video is attached for visual context.' : ''}
 
-Our clients: Stella (air freshener), HIT Kecoa (insecticide), NYU (hair color) — all Indonesian market.
+CULTURAL CONTEXT YOU MUST CONSIDER:
+- Indonesian cultural calendar: Ramadan/puasa, lebaran/Eid, back-to-school (Juli), 17 Agustus (Independence Day/HUT RI), year-end/Natal/liburan akhir tahun. Map the trend to any upcoming or current cultural moment.
+- Regional humor styles: receh humor (cheesy/corny jokes that go viral), relatable konten (slice-of-life "ini gue banget" content), POV format, "gue vs lo" dynamics, drama rumah tangga skits.
+- Local slang & TikTok-native language: FYP, masuk FYP, viral, gacor, sultan, bocil, bestie, slay, anak kos, emak-emak, baper, receh, gabut, mager, flexing.
+- Indonesian audience segments: Gen Z kota besar, ibu-ibu/emak-emak, anak kos, keluarga muda.
 
-Respond with this JSON:
+CREATIVE ANGLE REQUIREMENTS:
+For each creative angle, describe a SPECIFIC 15-second video concept a brand could film TOMORROW. Include: script outline (what happens beat by beat), audio choice (original sound, trending audio, or voiceover style), and visual style (POV, split-screen, transitions, text overlay style).
+
+=== FEW-SHOT EXAMPLE 1 (high-quality analysis) ===
+Input: A POV skit "ketika emak-emak belanja bulanan" with 500K likes, audio "Aku Suka Body Mama" remix
+Output excerpt:
 {
-  "summary": "2-3 sentence summary of the trend and why it matters",
-  "why_trending": "Why this is trending in Indonesia right now",
-  "cultural_context": "Indonesian cultural context and relevance",
-  "replication_signal": "How replicable is this format? Who's copying it?",
+  "summary": "POV skit format showing exaggerated monthly grocery shopping behavior of Indonesian mothers. The 'emak-emak belanja bulanan' trope resonates across demographics because it taps into universal family humor. 500K likes in 2 days signals strong replication potential.",
+  "why_trending": "Emak-emak content consistently performs on Indonesian TikTok because it bridges Gen Z creators (making the content) with millennial/Gen X audiences (sharing it on WhatsApp). The specific audio remix adds comedic timing that elevates the format.",
+  "cultural_context": "Belanja bulanan is a deeply Indonesian ritual — the monthly Indomaret/Alfamart run or pasar trip. This content peaks around gajian (payday, tanggal 25-1). Relatable across all socioeconomic levels in Indonesia.",
+  "creative_angles": [
+    "Stella: 15s POV 'ketika emak-emak nyium bau aneh di dapur sebelum tamu datang'. Beat 1 (0-3s): POV walking into kitchen, sniffing, disgusted face. Beat 2 (4-8s): frantic cleaning montage with receh expressions. Beat 3 (9-13s): sprays Stella, satisfied smile. Beat 4 (14-15s): tamu arrives, 'wangi banget rumahnya tante!' Text overlay throughout. Audio: trending 'Aku Suka Body Mama' remix. Visual: handheld POV, quick cuts, emoji text overlays.",
+    "HIT Kecoa: 15s 'gue vs kecoa' split-screen battle. Beat 1 (0-4s): left side shows person chilling, right side shows kecoa creeping. Beat 2 (5-9s): eye contact moment, dramatic zoom. Beat 3 (10-13s): grab HIT, spray action shot. Beat 4 (14-15s): victory pose with HIT can. Audio: epic battle music trending sound. Visual: split-screen, slow-mo on spray moment.",
+    "NYU: 15s 'emak-emak glow up challenge'. Beat 1 (0-5s): 'sebelum' look with hair wrapped in towel. Beat 2 (6-10s): applying NYU hair color process (sped up). Beat 3 (11-15s): reveal with hair flip, family reaction shots. Audio: 'Glow Up' trending sound. Visual: before/after transition with flash effect."
+  ]
+}
+
+=== FEW-SHOT EXAMPLE 2 (high-quality analysis) ===
+Input: Ramadan recipe hack "buka puasa modal 15rb" with 200K shares, original audio
+Output excerpt:
+{
+  "summary": "Budget buka puasa recipe content showing creative iftar meals under 15,000 IDR. High share count (200K) indicates strong WhatsApp forwarding behavior typical of Ramadan content. This is a seasonal trend with 2-3 week remaining lifespan.",
+  "why_trending": "Ramadan content economy peaks 2 weeks before lebaran. Budget food content specifically resonates because it combines religious observance with economic relatability. The '15rb' price anchor makes it feel accessible and shareable to family WhatsApp groups.",
+  "cultural_context": "Buka puasa is the most communal daily moment during Ramadan in Indonesia. Budget recipes tap into gotong royong values and practical household management. Content like this gets forwarded by ibu-ibu to family groups, creating organic reach beyond TikTok.",
+  "creative_angles": [
+    "Stella: 15s 'persiapan rumah buat buka puasa bareng'. Beat 1 (0-4s): messy living room after seharian puasa. Beat 2 (5-9s): quick clean-up montage. Beat 3 (10-12s): spray Stella di ruang tamu. Beat 4 (13-15s): keluarga datang, 'mashaAllah wangi'. Audio: calming Ramadan nasheed trending. Visual: satisfying cleaning ASMR style, warm lighting.",
+    "NYU: 15s 'glow up sebelum silaturahmi lebaran'. Beat 1 (0-3s): 'H-3 lebaran, rambut masih kusam'. Beat 2 (4-10s): NYU application time-lapse. Beat 3 (11-15s): lebaran outfit reveal with fresh hair color, family compliments. Audio: 'Selamat Hari Raya' modern remix. Visual: aesthetic transition, golden hour lighting."
+  ]
+}
+
+=== END EXAMPLES ===
+
+Now analyze the trend above with the same depth and specificity. Respond with this exact JSON schema:
+{
+  "summary": "2-3 sentence summary of the trend and why it matters for Indonesian market",
+  "why_trending": "Why this is trending in Indonesia right now — reference specific cultural moments, audience behaviors, or platform dynamics",
+  "cultural_context": "Deep Indonesian cultural context — reference specific calendar moments, regional behaviors, slang, audience segments",
+  "replication_signal": "How replicable is this format? Who is copying it and how? What makes it easy/hard to replicate?",
   "brand_safety": "Any brand safety concerns? Score 0-100 (100=perfectly safe)",
-  "creative_angles": ["angle 1", "angle 2", "angle 3"],
+  "creative_angles": ["Specific 15-second video concept with script outline, audio choice, and visual style for each brand"],
   "confidence": 0.0 to 1.0,
   "virality_trajectory": "rising" or "peaking" or "declining",
   "key_insights": ["insight 1", "insight 2", "insight 3"],
@@ -280,6 +317,7 @@ Respond with this JSON:
       virality_trajectory: parsed.virality_trajectory || 'unknown',
       trash_check: parsed.trash_check || { passed: true, reasons: [] },
       model_version: model,
+      analysis_version: ANALYSIS_VERSION,
     };
   } catch (err) {
     const status = err.response?.status || 'unknown';
