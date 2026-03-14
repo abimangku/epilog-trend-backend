@@ -12,6 +12,8 @@ const savedRouter = require('./api/saved');
 const collectionsRouter = require('./api/collections');
 const patternsRouter = require('./api/patterns');
 const forYouRouter = require('./api/for-you');
+const helmet = require('helmet');
+const { pinLimiter, triggerLimiter, apiLimiter } = require('./middleware/rate-limiter');
 
 const MOD = 'SERVER';
 
@@ -59,41 +61,6 @@ function requireAuth(req, res, next) {
 }
 
 // ---------------------------------------------------------------------------
-// Rate limiter for /trigger/* endpoints (60 req/min per IP)
-// ---------------------------------------------------------------------------
-
-const rateLimitMap = new Map(); // ip -> { count, resetAt }
-const RATE_LIMIT_WINDOW_MS = 60 * 1000;
-const RATE_LIMIT_MAX = 60;
-
-function rateLimitTrigger(req, res, next) {
-  const ip = req.ip || req.connection.remoteAddress;
-  const now = Date.now();
-
-  let entry = rateLimitMap.get(ip);
-  if (!entry || now > entry.resetAt) {
-    entry = { count: 0, resetAt: now + RATE_LIMIT_WINDOW_MS };
-    rateLimitMap.set(ip, entry);
-  }
-
-  entry.count++;
-
-  if (entry.count > RATE_LIMIT_MAX) {
-    return res.status(429).json({ error: 'Rate limit exceeded. Max 60 requests per minute.' });
-  }
-
-  next();
-}
-
-// Clean up stale rate limit entries every 5 minutes
-setInterval(() => {
-  const now = Date.now();
-  for (const [ip, entry] of rateLimitMap) {
-    if (now > entry.resetAt) rateLimitMap.delete(ip);
-  }
-}, 5 * 60 * 1000).unref();
-
-// ---------------------------------------------------------------------------
 // Express app
 // ---------------------------------------------------------------------------
 
@@ -101,6 +68,19 @@ const app = express();
 
 // Middleware
 app.use(express.json());
+
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://www.tiktok.com"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "https:", "blob:"],
+      connectSrc: ["'self'", process.env.SUPABASE_URL || '', "https://*.supabase.co"],
+      frameSrc: ["'self'", "https://www.tiktok.com"],
+    },
+  },
+}));
 
 // Request logging
 app.use((req, res, next) => {
@@ -115,10 +95,10 @@ app.use((req, res, next) => {
 // ---------------------------------------------------------------------------
 // JWT Auth routes (frontend PIN auth)
 // ---------------------------------------------------------------------------
-app.use('/api/auth', authRouter);
+app.use('/api/auth', pinLimiter, authRouter);
 
 // All other /api/* routes require JWT
-app.use('/api', requireJwtAuth);
+app.use('/api', apiLimiter, requireJwtAuth);
 
 app.use('/api/saved', savedRouter);
 app.use('/api/collections', collectionsRouter);
@@ -160,7 +140,7 @@ app.get('/health', async (req, res) => {
 // POST /trigger/scrape
 // ---------------------------------------------------------------------------
 
-app.post('/trigger/scrape', rateLimitTrigger, requireAuth, (req, res) => {
+app.post('/trigger/scrape', triggerLimiter, requireAuth, (req, res) => {
   if (pipelineRunning) {
     return res.status(409).json({
       error: 'Scrape already running',
