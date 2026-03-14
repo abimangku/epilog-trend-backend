@@ -1,5 +1,7 @@
 import { NavLink } from 'react-router-dom';
 import { useUIStore } from '../../stores/ui';
+import { useUnacknowledgedCriticalCount } from '../../hooks/use-pipeline-events';
+import { useLatestRun } from '../../hooks/use-pipeline-status';
 
 const mainNav = [
   { to: '/', label: "Today's Pulse" },
@@ -55,6 +57,55 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
+function getStatusDotColor(status: string | undefined | null): string {
+  switch (status) {
+    case 'success':
+      return '#22c55e';
+    case 'partial':
+    case 'running':
+      return '#eab308';
+    case 'failed':
+      return '#ef4444';
+    default:
+      return 'var(--text-muted)';
+  }
+}
+
+function SystemLink() {
+  const { data: criticalCount } = useUnacknowledgedCriticalCount();
+  const { data: latestRun } = useLatestRun();
+  const dotColor = getStatusDotColor(latestRun?.status);
+
+  return (
+    <NavLink
+      to="/system"
+      className={({ isActive }) =>
+        `block rounded-lg px-3 py-2 text-[13px] transition-colors ${isActive ? 'font-medium' : ''}`
+      }
+      style={({ isActive }) => ({
+        background: isActive ? 'var(--bg-card)' : 'transparent',
+        color: isActive ? 'var(--text-primary)' : 'var(--text-secondary)',
+      })}
+    >
+      <span className="flex items-center gap-2.5">
+        <span
+          className="inline-block w-[7px] h-[7px] rounded-full flex-shrink-0"
+          style={{ background: dotColor }}
+        />
+        System
+        {criticalCount > 0 && (
+          <span
+            className="ml-auto inline-flex items-center justify-center rounded-full text-[10px] font-medium leading-none px-1.5 py-0.5"
+            style={{ background: '#ef4444', color: '#ffffff' }}
+          >
+            {criticalCount}
+          </span>
+        )}
+      </span>
+    </NavLink>
+  );
+}
+
 export function Sidebar() {
   const collapsed = useUIStore((s) => s.sidebarCollapsed);
 
@@ -95,6 +146,7 @@ export function Sidebar() {
       </nav>
 
       <div className="mt-auto pt-3 border-t" style={{ borderColor: 'var(--border-divider)' }}>
+        <SystemLink />
         <SidebarLink to="/settings" label="Settings" />
       </div>
     </aside>
