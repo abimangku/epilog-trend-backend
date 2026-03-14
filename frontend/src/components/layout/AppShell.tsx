@@ -11,19 +11,24 @@ import { useUIStore } from '../../stores/ui';
 export function AppShell() {
   const navigate = useNavigate();
   const { authenticated, loading, setAuthenticated, setLoading } = useAuthStore();
-  const { closeDetailPanel, navigateDetail } = useUIStore();
+  const { closeDetailPanel, navigateDetail, detailPanelTrendId } = useUIStore();
 
-  const shortcuts = useMemo(() => ({
-    'g': () => navigate('/'),
-    'e': () => navigate('/explore'),
-    'f': () => navigate('/for-you'),
-    's': () => navigate('/saved'),
-    'p': () => navigate('/patterns'),
-    '/': () => document.querySelector<HTMLInputElement>('[data-search-input]')?.focus(),
-    'arrowleft': () => navigateDetail('prev'),
-    'arrowright': () => navigateDetail('next'),
-    'escape': () => closeDetailPanel(),
-  }), [navigate, navigateDetail, closeDetailPanel]);
+  const shortcuts = useMemo(() => {
+    const map: Record<string, () => void> = {
+      'g': () => navigate('/'),
+      'e': () => navigate('/explore'),
+      'f': () => navigate('/for-you'),
+      's': () => navigate('/saved'),
+      'p': () => navigate('/patterns'),
+      '/': () => document.querySelector<HTMLInputElement>('[data-search-input]')?.focus(),
+    };
+    if (detailPanelTrendId) {
+      map['arrowleft'] = () => navigateDetail('prev');
+      map['arrowright'] = () => navigateDetail('next');
+      map['escape'] = () => closeDetailPanel();
+    }
+    return map;
+  }, [navigate, navigateDetail, closeDetailPanel, detailPanelTrendId]);
 
   useKeyboard(shortcuts);
 

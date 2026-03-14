@@ -29,6 +29,7 @@ export function SearchInput({ value, onChange, placeholder = 'Search trends...' 
         style={{ color: 'var(--text-muted)' }}
       />
       <input
+        data-search-input
         type="text"
         value={local}
         onChange={(e) => handleChange(e.target.value)}
