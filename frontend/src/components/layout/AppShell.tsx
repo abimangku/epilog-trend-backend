@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
+import { MobileNav } from './MobileNav';
 import { verifySession } from '../../lib/api';
 import { useAuthStore } from '../../stores/auth';
 import { ToastContainer } from '../shared/Toast';
@@ -52,12 +53,15 @@ export function AppShell() {
 
   return (
     <div className="min-h-screen flex" style={{ background: 'var(--bg-page)' }}>
-      <Sidebar />
-      <main className="flex-1 overflow-auto">
+      <div className="hidden md:block">
+        <Sidebar />
+      </div>
+      <main className="flex-1 overflow-auto pb-16 md:pb-0">
         <Outlet />
       </main>
       <DetailPanel />
       <ToastContainer />
+      <MobileNav />
     </div>
   );
 }
