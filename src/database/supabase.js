@@ -558,6 +558,66 @@ async function acknowledgePipelineEvents(eventIds) {
   }
 }
 
+/**
+ * Upserts audio trend data from a pipeline scrape batch.
+ * Groups by audio_id, counts unique authors, and tracks first/last seen.
+ *
+ * @param {Array<{audio_id: string, audio_title: string, author: string}>} videos
+ * @returns {Promise<number>} Number of audio trends upserted
+ */
+async function upsertAudioTrends(videos) {
+  const audioMap = new Map();
+  for (const v of videos) {
+    if (!v.audio_id) continue;
+    if (!audioMap.has(v.audio_id)) {
+      audioMap.set(v.audio_id, { title: v.audio_title || '', authors: new Set() });
+    }
+    audioMap.get(v.audio_id).authors.add(v.author);
+  }
+
+  let upserted = 0;
+  const now = new Date().toISOString();
+
+  for (const [audioId, data] of audioMap) {
+    try {
+      const { data: existing } = await supabase
+        .from('audio_trends')
+        .select('id, usage_count, unique_authors')
+        .eq('audio_id', audioId)
+        .order('scraped_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (existing) {
+        await supabase.from('audio_trends').insert({
+          audio_id: audioId,
+          audio_title: data.title,
+          usage_count: data.authors.size,
+          unique_authors: data.authors.size,
+          last_seen_at: now,
+          scraped_at: now,
+        });
+      } else {
+        await supabase.from('audio_trends').insert({
+          audio_id: audioId,
+          audio_title: data.title,
+          usage_count: data.authors.size,
+          unique_authors: data.authors.size,
+          first_seen_at: now,
+          last_seen_at: now,
+          scraped_at: now,
+        });
+      }
+      upserted++;
+    } catch (err) {
+      logger.warn(MOD, `Failed to upsert audio trend ${audioId}`, err);
+    }
+  }
+
+  logger.log(MOD, `Upserted ${upserted} audio trends`);
+  return upserted;
+}
+
 module.exports = {
   supabase,
   generateTrendHash,
@@ -574,6 +634,7 @@ module.exports = {
   createPipelineEvent,
   checkConnection,
   updateTrendThumbnail,
+  upsertAudioTrends,
   getScheduleConfig,
   updateScheduleConfig,
   acknowledgePipelineEvents,

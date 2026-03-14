@@ -53,6 +53,7 @@ const {
   createPipelineEvent,
   checkConnection,
   updateTrendThumbnail,
+  upsertAudioTrends,
 } = require('./database/supabase');
 const { trashGate, deepAnalysis, crossTrendSynthesis } = require('./ai/analyzer');
 const { scoreBrandFit } = require('./ai/brand-fit');
@@ -315,6 +316,16 @@ async function runPipeline() {
         stats.errors++;
         logger.error(MOD, `Failed to process video: ${video.title || video.url}`, err);
       }
+    }
+
+    // -----------------------------------------------------------------------
+    // Step 3b — Audio trend tracking
+    // -----------------------------------------------------------------------
+    try {
+      const audioCount = await upsertAudioTrends(videos);
+      logger.log(MOD, `Tracked ${audioCount} audio trends`);
+    } catch (err) {
+      logger.warn(MOD, 'Audio trend tracking failed (non-fatal)', err);
     }
 
     // -----------------------------------------------------------------------
