@@ -1,6 +1,7 @@
 require('dotenv').config();
 
 const express = require('express');
+const path = require('path');
 const logger = require('./logger');
 const { testConnection, supabase } = require('./database/supabase');
 const { runPipelineOnce } = require('./pipeline');
@@ -197,6 +198,25 @@ app.get('/status/pipeline', (req, res) => {
 
 app.post('/webhook/test', requireAuth, (req, res) => {
   res.json({ message: 'Webhook endpoint alive' });
+});
+
+// ---------------------------------------------------------------------------
+// Serve frontend static files
+// ---------------------------------------------------------------------------
+
+const frontendDist = path.join(__dirname, '..', 'frontend', 'dist');
+app.use(express.static(frontendDist));
+
+// SPA fallback — all non-API routes serve index.html
+app.get('*', (req, res, next) => {
+  if (req.path.startsWith('/api/') || req.path.startsWith('/health') ||
+      req.path.startsWith('/trigger/') || req.path.startsWith('/status/') ||
+      req.path.startsWith('/webhook/')) {
+    return next();
+  }
+  res.sendFile(path.join(frontendDist, 'index.html'), (err) => {
+    if (err) next();
+  });
 });
 
 // ---------------------------------------------------------------------------
