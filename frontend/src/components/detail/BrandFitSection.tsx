@@ -12,9 +12,6 @@ export function BrandFitSection({ fits }: BrandFitSectionProps) {
 
   return (
     <div>
-      <h3 className="text-[11px] uppercase tracking-wider font-medium mb-3" style={{ color: 'var(--text-muted)' }}>
-        Brand Fit
-      </h3>
       <div className="space-y-2">
         {sorted.map((fit) => {
           const color = getBrandColor(fit.brand_name);
@@ -37,18 +34,41 @@ export function BrandFitSection({ fits }: BrandFitSectionProps) {
                     {fit.brand_name}
                   </span>
                 </div>
-                <span
-                  className="text-[15px] font-semibold"
-                  style={{ color: fit.fit_score >= 60 ? color : 'var(--text-muted)' }}
-                >
-                  {fit.fit_score}
-                </span>
+                <div className="flex items-center gap-2">
+                  {fit.timing && (
+                    <span
+                      className="text-[11px] font-medium"
+                      style={{
+                        color:
+                          fit.timing === 'act_now'
+                            ? '#ef4444'
+                            : fit.timing === 'this_week'
+                              ? '#eab308'
+                              : 'var(--text-muted)',
+                      }}
+                    >
+                      {fit.timing.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())}
+                    </span>
+                  )}
+                  <span
+                    className="text-[15px] font-semibold"
+                    style={{ color: fit.fit_score >= 60 ? color : 'var(--text-muted)' }}
+                  >
+                    {fit.fit_score}
+                  </span>
+                </div>
               </div>
 
               {fit.entry_angle && (
                 <p className="text-[12px] leading-relaxed mb-2" style={{ color: 'var(--text-body)' }}>
                   {fit.entry_angle}
                 </p>
+              )}
+
+              {fit.risk_notes && fit.fit_score >= 30 && (
+                <div className="text-[11px] leading-relaxed mt-1.5" style={{ color: 'var(--text-muted)' }}>
+                  Risk: {fit.risk_notes}
+                </div>
               )}
 
               {fit.content_ideas && fit.content_ideas.length > 0 && !dimmed && (

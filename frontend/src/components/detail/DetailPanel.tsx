@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { X, ChevronLeft, ChevronRight, Bookmark, ExternalLink } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, ChevronDown, Bookmark, ExternalLink } from 'lucide-react';
 import { useUIStore } from '../../stores/ui';
 import { useTrend } from '../../hooks/use-trends';
 import { useAnalysis } from '../../hooks/use-analysis';
@@ -12,6 +13,8 @@ import { VideoEmbed } from './VideoEmbed';
 import { MetricTiles } from './MetricTiles';
 import { BrandFitSection } from './BrandFitSection';
 import { UserAssessment } from './UserAssessment';
+import { EngagementSparkline } from './EngagementSparkline';
+import { CopyBrief } from './CopyBrief';
 
 export function DetailPanel() {
   const { detailPanelTrendId, detailPanelTrendIds, closeDetailPanel, navigateDetail } = useUIStore();
@@ -21,6 +24,14 @@ export function DetailPanel() {
   const { data: savedItems } = useSavedItems();
   const saveTrend = useSaveTrend();
   const unsaveTrend = useUnsaveTrend();
+
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
+    overview: true,
+    analysis: true,
+    brandFit: true,
+    engagement: false,
+  });
+  const toggleSection = (key: string) => setOpenSections(prev => ({ ...prev, [key]: !prev[key] }));
 
   const isSaved = savedItems?.some((s) => s.trend_id === detailPanelTrendId) ?? false;
   const currentIdx = detailPanelTrendId ? detailPanelTrendIds.indexOf(detailPanelTrendId) : -1;
@@ -120,7 +131,29 @@ export function DetailPanel() {
             </div>
 
             {trend ? (
-              <div className="p-5 space-y-6">
+              <div className="p-5 space-y-6 fade-in">
+                {/* Key metrics row */}
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { label: 'Trend Score', value: trend.trend_score },
+                    { label: 'Confidence', value: analysis?.calibrated_confidence ?? analysis?.confidence ?? '\u2014' },
+                    { label: 'Lifecycle', value: trend.lifecycle_stage.replace(/^\w/, (c) => c.toUpperCase()) },
+                  ].map((metric) => (
+                    <div
+                      key={metric.label}
+                      className="rounded-lg p-3 text-center"
+                      style={{ background: 'var(--bg-card)', border: '1px solid var(--border-card)' }}
+                    >
+                      <div className="text-[20px] font-bold" style={{ color: 'var(--text-primary)' }}>
+                        {metric.value}
+                      </div>
+                      <div className="text-[10px] uppercase tracking-wider mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                        {metric.label}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
                 {/* Video embed */}
                 <VideoEmbed url={trend.video_embed_url || trend.url} thumbnailUrl={trend.thumbnail_storage_url || trend.thumbnail_url} />
 
@@ -130,8 +163,8 @@ export function DetailPanel() {
                     {trend.title}
                   </h2>
                   <div className="text-[12px] mb-3" style={{ color: 'var(--text-muted)' }}>
-                    {trend.author && `@${trend.author} · `}
-                    {formatNumber(trend.views)} views · {timeAgo(trend.scraped_at)}
+                    {trend.author && `@${trend.author} \u00b7 `}
+                    {formatNumber(trend.views)} views \u00b7 {timeAgo(trend.scraped_at)}
                   </div>
                   <div className="flex gap-1.5 flex-wrap">
                     <Badge type="lifecycle" value={trend.lifecycle_stage} />
@@ -144,56 +177,98 @@ export function DetailPanel() {
                 {/* Metrics */}
                 <MetricTiles trend={trend} />
 
-                {/* AI Analysis */}
+                {/* AI Analysis (collapsible) */}
                 {analysis && (
                   <div>
-                    <h3 className="text-[11px] uppercase tracking-wider font-medium mb-3" style={{ color: 'var(--text-muted)' }}>
-                      AI Analysis
-                    </h3>
-                    {analysis.summary && (
-                      <p className="text-[13px] leading-relaxed mb-3" style={{ color: 'var(--text-body)' }}>
-                        {analysis.summary}
-                      </p>
-                    )}
-                    {analysis.why_trending && (
-                      <div className="mb-3">
-                        <div className="text-[11px] font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Why trending</div>
-                        <p className="text-[13px] leading-relaxed" style={{ color: 'var(--text-body)' }}>{analysis.why_trending}</p>
-                      </div>
-                    )}
-                    {analysis.key_insights && analysis.key_insights.length > 0 && (
-                      <div className="mb-3">
-                        <div className="text-[11px] font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Key insights</div>
-                        <ul className="text-[13px] leading-relaxed space-y-1" style={{ color: 'var(--text-body)' }}>
-                          {analysis.key_insights.map((insight, i) => (
-                            <li key={i}>• {insight}</li>
-                          ))}
-                        </ul>
+                    <button onClick={() => toggleSection('analysis')} className="flex items-center justify-between w-full mb-3">
+                      <h3 className="text-[11px] uppercase tracking-wider font-medium" style={{ color: 'var(--text-muted)' }}>
+                        AI Analysis
+                      </h3>
+                      <ChevronDown size={14} style={{ color: 'var(--text-muted)', transform: openSections.analysis ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 150ms' }} />
+                    </button>
+                    {openSections.analysis && (
+                      <div className="fade-in">
+                        {analysis.summary && (
+                          <p className="text-[13px] leading-relaxed mb-3" style={{ color: 'var(--text-body)' }}>
+                            {analysis.summary}
+                          </p>
+                        )}
+                        {analysis.why_trending && (
+                          <div className="mb-3">
+                            <div className="text-[11px] font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Why trending</div>
+                            <p className="text-[13px] leading-relaxed" style={{ color: 'var(--text-body)' }}>{analysis.why_trending}</p>
+                          </div>
+                        )}
+                        {analysis.key_insights && analysis.key_insights.length > 0 && (
+                          <div className="mb-3">
+                            <div className="text-[11px] font-medium mb-1" style={{ color: 'var(--text-secondary)' }}>Key insights</div>
+                            <ul className="text-[13px] leading-relaxed space-y-1" style={{ color: 'var(--text-body)' }}>
+                              {analysis.key_insights.map((insight, i) => (
+                                <li key={i}>{'\u2022'} {insight}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
                 )}
 
-                {/* Brand fit */}
-                <BrandFitSection fits={brandFits || []} />
+                {/* Brand Fit (collapsible) */}
+                <div>
+                  <button onClick={() => toggleSection('brandFit')} className="flex items-center justify-between w-full mb-3">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-[11px] uppercase tracking-wider font-medium" style={{ color: 'var(--text-muted)' }}>
+                        Brand Fit
+                      </h3>
+                      <CopyBrief trend={trend} analysis={analysis || null} fits={brandFits || []} />
+                    </div>
+                    <ChevronDown size={14} style={{ color: 'var(--text-muted)', transform: openSections.brandFit ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 150ms' }} />
+                  </button>
+                  {openSections.brandFit && (
+                    <div className="fade-in">
+                      <BrandFitSection fits={brandFits || []} />
+                    </div>
+                  )}
+                </div>
 
-                {/* Hashtags */}
+                {/* Engagement (collapsible, collapsed by default) */}
+                <div>
+                  <button onClick={() => toggleSection('engagement')} className="flex items-center justify-between w-full mb-3">
+                    <h3 className="text-[11px] uppercase tracking-wider font-medium" style={{ color: 'var(--text-muted)' }}>
+                      Engagement
+                    </h3>
+                    <ChevronDown size={14} style={{ color: 'var(--text-muted)', transform: openSections.engagement ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 150ms' }} />
+                  </button>
+                  {openSections.engagement && (
+                    <div className="fade-in">
+                      <EngagementSparkline trendId={trend.id} />
+                    </div>
+                  )}
+                </div>
+
+                {/* Hashtags (collapsible) */}
                 {trend.hashtags && trend.hashtags.length > 0 && (
                   <div>
-                    <h3 className="text-[11px] uppercase tracking-wider font-medium mb-2" style={{ color: 'var(--text-muted)' }}>
-                      Hashtags
-                    </h3>
-                    <div className="flex flex-wrap gap-1.5">
-                      {trend.hashtags.map((tag, i) => (
-                        <span
-                          key={i}
-                          className="px-2 py-0.5 rounded text-[11px]"
-                          style={{ background: 'var(--bg-input)', color: 'var(--text-secondary)' }}
-                        >
-                          #{tag}
-                        </span>
-                      ))}
-                    </div>
+                    <button onClick={() => toggleSection('overview')} className="flex items-center justify-between w-full mb-3">
+                      <h3 className="text-[11px] uppercase tracking-wider font-medium" style={{ color: 'var(--text-muted)' }}>
+                        Hashtags
+                      </h3>
+                      <ChevronDown size={14} style={{ color: 'var(--text-muted)', transform: openSections.overview ? 'rotate(180deg)' : 'rotate(0)', transition: 'transform 150ms' }} />
+                    </button>
+                    {openSections.overview && (
+                      <div className="fade-in flex flex-wrap gap-1.5">
+                        {trend.hashtags.map((tag, i) => (
+                          <span
+                            key={i}
+                            className="px-2 py-0.5 rounded text-[11px]"
+                            style={{ background: 'var(--bg-input)', color: 'var(--text-secondary)' }}
+                          >
+                            #{tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
 
