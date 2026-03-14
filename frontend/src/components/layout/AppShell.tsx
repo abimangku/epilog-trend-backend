@@ -4,6 +4,7 @@ import { Sidebar } from './Sidebar';
 import { verifySession } from '../../lib/api';
 import { useAuthStore } from '../../stores/auth';
 import { ToastContainer } from '../shared/Toast';
+import { DetailPanel } from '../detail/DetailPanel';
 
 export function AppShell() {
   const navigate = useNavigate();
@@ -33,6 +34,7 @@ export function AppShell() {
       <main className="flex-1 overflow-auto">
         <Outlet />
       </main>
+      <DetailPanel />
       <ToastContainer />
     </div>
   );
