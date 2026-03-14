@@ -636,6 +636,37 @@ async function upsertAudioTrends(videos) {
   return upserted;
 }
 
+/**
+ * Fetches the most recent engagement snapshot for a trend.
+ * Used for cross-run velocity calculation.
+ *
+ * @param {string} trendId - Trend UUID
+ * @returns {Promise<object|null>} Latest snapshot or null
+ */
+async function getLatestSnapshot(trendId) {
+  if (!trendId) return null;
+  try {
+    const { data, error } = await retrySupabase(
+      `get latest snapshot ${trendId.slice(0, 8)}`,
+      () => supabase
+        .from('engagement_snapshots')
+        .select('views, likes, comments, shares, bookmarks, captured_at')
+        .eq('trend_id', trendId)
+        .order('captured_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+    );
+    if (error) {
+      logger.warn(MOD, `Failed to get latest snapshot for ${trendId}: ${error.message}`);
+      return null;
+    }
+    return data;
+  } catch (err) {
+    logger.warn(MOD, `getLatestSnapshot error: ${err.message}`);
+    return null;
+  }
+}
+
 module.exports = {
   supabase,
   generateTrendHash,
@@ -656,4 +687,5 @@ module.exports = {
   getScheduleConfig,
   updateScheduleConfig,
   acknowledgePipelineEvents,
+  getLatestSnapshot,
 };

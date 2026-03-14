@@ -644,3 +644,68 @@ describe('compositeScore with recency decay', () => {
     expect(withoutTime).toBe(withNullTime);
   });
 });
+
+// ===========================================================================
+// Cross-Run Velocity
+// ===========================================================================
+
+describe('calculateVelocityScore with previousSnapshot', () => {
+  const { calculateVelocityScore } = require('../src/scoring/engagement');
+
+  test('uses cross-run delta when previousSnapshot provided', () => {
+    const now = new Date();
+    const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000);
+    const previousSnapshot = {
+      views: 50000, likes: 2000, comments: 100, shares: 500,
+      captured_at: twoHoursAgo.toISOString(),
+    };
+    const currentMetrics = {
+      views: 200000, likes: 8000, comments: 400, shares: 2000,
+      captured_at: now.toISOString(),
+    };
+    const score = calculateVelocityScore([], previousSnapshot, currentMetrics);
+    expect(score).toBeGreaterThan(0);
+    expect(score).toBeLessThanOrEqual(100);
+  });
+
+  test('falls back to single-batch when no previousSnapshot', () => {
+    const snapshots = [
+      { views: 1000, likes: 50, comments: 5, shares: 10, captured_at: new Date().toISOString() },
+    ];
+    const withoutPrev = calculateVelocityScore(snapshots);
+    const withNullPrev = calculateVelocityScore(snapshots, null, null);
+    expect(withoutPrev).toBe(withNullPrev);
+  });
+
+  test('ignores stale previousSnapshot (>72 hours)', () => {
+    const now = new Date();
+    const fourDaysAgo = new Date(now.getTime() - 96 * 60 * 60 * 1000);
+    const staleSnapshot = {
+      views: 50000, likes: 2000, comments: 100, shares: 500,
+      captured_at: fourDaysAgo.toISOString(),
+    };
+    const currentMetrics = {
+      views: 200000, likes: 8000, comments: 400, shares: 2000,
+      captured_at: now.toISOString(),
+    };
+    const snapshots = [currentMetrics];
+    const withStale = calculateVelocityScore(snapshots, staleSnapshot, currentMetrics);
+    const withoutPrev = calculateVelocityScore(snapshots);
+    expect(withStale).toBe(withoutPrev);
+  });
+
+  test('handles FYP mode (zero views) in cross-run delta', () => {
+    const now = new Date();
+    const oneHourAgo = new Date(now.getTime() - 1 * 60 * 60 * 1000);
+    const previousSnapshot = {
+      views: 0, likes: 100, comments: 10, shares: 50,
+      captured_at: oneHourAgo.toISOString(),
+    };
+    const currentMetrics = {
+      views: 0, likes: 500, comments: 50, shares: 200,
+      captured_at: now.toISOString(),
+    };
+    const score = calculateVelocityScore([], previousSnapshot, currentMetrics);
+    expect(score).toBeGreaterThan(0);
+  });
+});

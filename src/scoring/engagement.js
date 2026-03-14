@@ -51,10 +51,46 @@ function calculateEngagementRate(likes, comments, shares, views) {
  *
  * @param {Array<{views: number, likes: number, comments: number, shares: number, captured_at: string}>} snapshots
  *   Ordered oldest to newest.
+ * @param {object|null} [previousSnapshot] - Most recent snapshot from a previous pipeline run
+ * @param {object|null} [currentMetrics] - Current scrape metrics for cross-run delta
  * @returns {number} Velocity score normalized to 0-100.
  */
-function calculateVelocityScore(snapshots) {
-  if (!snapshots || snapshots.length === 0) return 0;
+function calculateVelocityScore(snapshots, previousSnapshot, currentMetrics) {
+  if ((!snapshots || snapshots.length === 0) && !previousSnapshot) return 0;
+  if (!snapshots) snapshots = [];
+
+  // Cross-run velocity: compare current metrics to previous pipeline run's snapshot
+  if (previousSnapshot && currentMetrics) {
+    const prevTime = new Date(previousSnapshot.captured_at).getTime();
+    const currTime = new Date(currentMetrics.captured_at || Date.now()).getTime();
+    const hoursBetween = (currTime - prevTime) / (1000 * 60 * 60);
+
+    // Ignore stale snapshots (>72h) or invalid time gaps
+    if (hoursBetween > 0 && hoursBetween < 72) {
+      const currViews = currentMetrics.views || 0;
+      const prevViews = previousSnapshot.views || 0;
+
+      if (currViews > 0 && prevViews > 0) {
+        // Normal mode: view-based velocity
+        const viewsPerHour = Math.max(0, (currViews - prevViews) / hoursBetween);
+        return Math.min(100, Math.round(
+          (Math.log10(Math.max(viewsPerHour, 1)) / Math.log10(100000)) * 100 * 100
+        ) / 100);
+      } else {
+        // FYP mode: weighted volume delta
+        const currVolume = (currentMetrics.likes || 0) + (currentMetrics.comments || 0) * 2 + (currentMetrics.shares || 0) * 3;
+        const prevVolume = (previousSnapshot.likes || 0) + (previousSnapshot.comments || 0) * 2 + (previousSnapshot.shares || 0) * 3;
+        const volumePerHour = Math.max(0, (currVolume - prevVolume) / hoursBetween);
+        const MAX_VOLUME_VELOCITY = 10000000;
+        return Math.min(100, Math.round(
+          (Math.log10(Math.max(volumePerHour, 1)) / Math.log10(MAX_VOLUME_VELOCITY)) * 100 * 100
+        ) / 100);
+      }
+    }
+  }
+
+  // Fall through to existing single-batch behavior below
+  if (snapshots.length === 0) return 0;
 
   const isFYP = snapshots.every((s) => !s.views || s.views === 0);
 

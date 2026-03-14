@@ -54,6 +54,7 @@ const {
   checkConnection,
   updateTrendThumbnail,
   upsertAudioTrends,
+  getLatestSnapshot,
 } = require('./database/supabase');
 const { trashGate, deepAnalysis, crossTrendSynthesis } = require('./ai/analyzer');
 const { scoreBrandFit } = require('./ai/brand-fit');
@@ -194,15 +195,25 @@ async function runPipeline() {
         let snapshots = [];
         let firstSeenAt = new Date();
 
+        // Fetch latest snapshot for cross-run velocity
+        let previousSnapshot = null;
         if (existing) {
           const rawSnapshots = await getRecentSnapshots(existing.id);
           snapshots = rawSnapshots.reverse();
           firstSeenAt = new Date(existing.scraped_at);
+          previousSnapshot = await getLatestSnapshot(existing.id);
         }
 
         // --- Velocity ---
-        const velocityScore = snapshots.length > 0
-          ? calculateVelocityScore(snapshots)
+        const currentMetrics = {
+          views: video.views || 0,
+          likes: video.likes || 0,
+          comments: video.comments || 0,
+          shares: video.shares || 0,
+          captured_at: new Date().toISOString(),
+        };
+        const velocityScore = snapshots.length > 0 || previousSnapshot
+          ? calculateVelocityScore(snapshots, previousSnapshot, currentMetrics)
           : Math.min(engagementRate, 100);
 
         // --- Momentum ---
