@@ -71,6 +71,13 @@ Simple centered PIN input (4-6 digits). No email, no signup, no password reset. 
 - Returns JWT session token (7-day expiry, stored in localStorage)
 - All subsequent API calls use Bearer token
 
+**Auth implementation:**
+- PIN stored as `TEAM_PIN_HASH` env var (bcrypt hash)
+- JWT signed with `JWT_SECRET` env var using `jsonwebtoken` library
+- `POST /api/auth/pin` — request: `{ pin: "1234" }`, response: `{ token: "jwt..." }` or `{ error: "Invalid PIN" }` (401)
+- `GET /api/auth/verify` — header: `Authorization: Bearer <jwt>`, response: `{ valid: true }` or 401
+- Express middleware `requireAuth` verifies JWT on all `/api/*` routes except `/api/auth/pin`
+
 ### 2. Today's Pulse (Home)
 
 The morning briefing. Opens like a magazine cover.
@@ -102,7 +109,7 @@ Full browsable feed of ALL scraped content.
 
 **Filters:**
 - Lifecycle stage: emerging, growing, peaking, declining, all
-- Content format: tutorial, POV, ASMR, challenge, duet, mukbang, unboxing, storytime, all
+- Content format: tutorial, POV, ASMR, challenge, duet, mukbang, unboxing, storytime, all (filter runs client-side by matching `title` + `hashtags` against format keywords from `src/patterns/formats.js` — same logic ported to a shared utility)
 - Brand match: Stella, HIT Kecoa, NYU, no match, all
 - Engagement range: slider or preset buckets
 - Cultural moment: Ramadan, lebaran, imlek, school season, all
@@ -128,7 +135,7 @@ Opens from the right on any card click across any page. 480px wide on desktop, f
 6. **Key Insights** — bullet list from `trend_analysis.key_insights`
 7. **Hashtags** — tag pills from `trends.hashtags`
 8. **Brand Opportunities** — per-brand cards showing fit score, entry angle, content ideas. Low-fit brands dimmed (opacity 0.5), not hidden
-9. **"Your Take"** — one-click vote (Gold / Good / Wrong timing / Skip) + optional note. Writes to `team_feedback`
+9. **"Your Take"** — one-click vote (Gold / Good / Wrong timing / Skip) + optional note. Writes directly to `team_feedback` via Supabase client (RLS allows anon INSERT). No Express endpoint needed — same pattern as the existing Lovable frontend.
 
 **Navigation:** prev/next arrows cycle through the current page's filtered result set. Keyboard left/right arrows supported.
 
@@ -138,9 +145,9 @@ AI-curated recommendations grouped by creative opportunity type.
 
 **Sections:**
 1. **High Potential** — high engagement + growing + strong brand fit. Top composite scores from `client_brand_fit` joined with `trends`.
-2. **Fun to Replicate** — high views + entertaining format + easy to adapt, even without strong trend signals. Filtered by: `views > median` AND format detected AND `classification` in ('noise', 'emerging_trend'). Shows "no brand match — format reference only" when no brand fits.
-3. **Rising Quietly** — emerging lifecycle + accelerating momentum. Filtered by: `lifecycle_stage = 'emerging'` AND `momentum = 1` (accelerating).
-4. **Audio Going Viral** — audio tracks with rising usage across multiple creators. Aggregated from `trends` by `audio_id` with growth rate calculation.
+2. **Fun to Replicate** — high views + entertaining format + easy to adapt, even without strong trend signals. Filtered by: `views` above 75th percentile (computed server-side via `GET /api/for-you`) AND `detected_formats` is not empty AND `classification` in ('noise', 'emerging_trend'). Shows "no brand match — format reference only" when no brand fits.
+3. **Rising Quietly** — emerging lifecycle + accelerating momentum. Filtered by: `lifecycle_stage = 'emerging'` AND `momentum = 'accelerating'` (string value from backend `calculateMomentum()`).
+4. **Audio Going Viral** — audio tracks with rising usage across multiple creators. Served by `GET /api/patterns/audio` which aggregates `trends` by `audio_id`, comparing count in last 3 days vs prior 3 days to compute growth rate. Only includes `audio_id IS NOT NULL`.
 
 **Card layout:** Horizontal (thumbnail left, context right). Each card has a left-border reasoning block — AI explains WHY in one sentence.
 
@@ -153,7 +160,7 @@ AI-curated recommendations grouped by creative opportunity type.
 One page per brand (Stella, HIT Kecoa, NYU), identical layout, parameterized route `/brand/:name`.
 
 **Sections:**
-1. **Brand header** — brand name, category, dot indicator (brand color), AI-written landscape summary (from cross-trend synthesis `brand_relevance_notes` parsed for this brand), opportunity count, strong-fit count (fit_score > 70)
+1. **Brand header** — brand name, category, dot indicator (brand color), AI-written landscape summary (from cross-trend synthesis `brand_relevance_notes` — stored as `JSON.stringify({Stella: "...", "HIT Kecoa": "...", NYU: "..."})`, frontend must `JSON.parse()` and extract by brand name), opportunity count, strong-fit count (fit_score > 70)
 2. **Best Opportunity** — hero card (large) with full entry angle, 3 content ideas, Save/Copy/TikTok buttons. Top `client_brand_fit` record by `fit_score` for this brand.
 3. **More Opportunities** — compact rows (small thumbnail, title, fit score, one-word angle descriptor). Remaining `client_brand_fit` records sorted by `fit_score` descending. Low-fit (< 30) dimmed.
 
@@ -174,7 +181,7 @@ Personal bookmarks and collections (mood boards).
 - Organize into collections (drag or "Move to..." dropdown)
 - Items can live in multiple collections
 - Remove from collection or delete entirely
-- Collections stored per PIN session (since there's one shared PIN, all saves are shared)
+- All saves are team-wide (shared PIN = shared saves). Everyone sees the same bookmarks and collections.
 
 **Data:** New tables `saved_items`, `collections`, `collection_items`. See Database Additions.
 
@@ -216,12 +223,15 @@ Replaces current Admin page. Tucked away, operational.
   - Stella: `#22c55e` (green)
   - HIT Kecoa: `#ef4444` (red)
   - NYU: `#f59e0b` (amber)
-- **Lifecycle badges:**
+- **Lifecycle badges** (from `trends.lifecycle_stage`):
   - emerging: `#3b82f6` (blue)
   - growing: `#22c55e` (green)
   - peaking: `#f59e0b` (amber)
-  - viral: `#ef4444` (red)
   - declining: `#525252` (gray)
+  - dead: `#404040` (dark gray)
+- **Classification badges** (from `trends.classification`, shown separately when relevant):
+  - viral: `#ef4444` (red)
+  - hot_trend: `#f97316` (orange)
 
 ### Typography
 - **Font:** Geist Sans (UI), system fallback stack
@@ -270,11 +280,18 @@ Replaces current Admin page. Tucked away, operational.
 - `react-hook-form` + `zod` — only form is PIN entry
 - `sonner` — custom minimal toast
 
+### Backend New Dependencies
+| Package | Purpose |
+|---------|---------|
+| `jsonwebtoken` | JWT generation and verification for PIN auth |
+| `bcrypt` | PIN hash comparison |
+
 ### Backend Additions (Express endpoints)
 
 ```
 POST /api/auth/pin          — Verify PIN, return JWT
 GET  /api/auth/verify       — Validate JWT session
+GET  /api/for-you           — Curated picks (high potential, fun to replicate, rising, audio)
 GET  /api/collections       — List collections
 POST /api/collections       — Create collection
 PUT  /api/collections/:id   — Rename collection
@@ -294,7 +311,7 @@ GET  /api/patterns/audio    — Audio momentum aggregation
 -- Saved items (bookmarked trends)
 CREATE TABLE saved_items (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  trend_id UUID NOT NULL REFERENCES trends(id) ON DELETE CASCADE,
+  trend_id UUID NOT NULL UNIQUE REFERENCES trends(id) ON DELETE CASCADE,
   saved_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -417,11 +434,124 @@ frontend/
 
 ## Mobile Considerations
 
-- Sidebar collapses to bottom tab bar (5 tabs: Pulse, Explore, For You, Brands, Saved)
+- Sidebar collapses to bottom tab bar (5 tabs: Pulse, Explore, For You, Brands, More). "More" tab opens a sheet with Saved, Patterns, and Settings
 - Detail panel opens full-screen on mobile (slide up from bottom)
 - Grid view: 1 column on mobile, 2 on tablet
 - Filter bar: horizontal scroll on mobile
 - Swipe left/right for prev/next in detail panel
+
+---
+
+## Backend API Response Schemas
+
+### `POST /api/auth/pin`
+```json
+// Request
+{ "pin": "1234" }
+
+// Response 200
+{ "token": "eyJhbG..." }
+
+// Response 401
+{ "error": "Invalid PIN" }
+```
+
+### `GET /api/collections`
+```json
+// Response 200
+[
+  { "id": "uuid", "name": "Ramadan Ideas", "created_at": "iso", "updated_at": "iso", "item_count": 8 }
+]
+```
+
+### `GET /api/saved`
+```json
+// Response 200
+[
+  { "id": "uuid", "trend_id": "uuid", "saved_at": "iso", "collections": ["uuid1", "uuid2"] }
+]
+```
+
+### `GET /api/patterns/formats`
+```json
+// Response 200
+[
+  { "format": "tutorial", "count": 42, "percentage": 28, "growth": 5 },
+  { "format": "asmr", "count": 27, "percentage": 18, "growth": 45 }
+]
+```
+Growth = % change vs prior period (same window length).
+
+### `GET /api/patterns/audio`
+```json
+// Response 200
+[
+  {
+    "audio_id": "123",
+    "audio_title": "Nanti Kita Cerita...",
+    "current_count": 14,
+    "previous_count": 5,
+    "growth_pct": 180,
+    "status": "rising"
+  }
+]
+```
+Status derived from growth: `>50%` = rising, `-10% to 50%` = stable, `<-10%` = declining.
+
+### `GET /api/for-you`
+```json
+// Response 200
+{
+  "high_potential": [{ "trend_id": "uuid", ...trend_fields, "reason": "..." }],
+  "fun_to_replicate": [{ "trend_id": "uuid", ...trend_fields, "reason": "..." }],
+  "rising_quietly": [{ "trend_id": "uuid", ...trend_fields, "reason": "..." }],
+  "audio_going_viral": [{ "audio_id": "123", "audio_title": "...", "growth_pct": 180, "trend_ids": ["uuid"] }]
+}
+```
+Computed server-side. `reason` field is the one-sentence explanation from `trend_analysis.summary`.
+
+---
+
+## Loading, Error & Empty States
+
+### Loading
+- All data-fetching pages show skeleton cards/rows matching the layout shape while loading
+- TanStack Query manages loading states — each hook returns `{ data, isLoading, error }`
+- Skeleton component in `shared/Skeleton.tsx` with variants for each card type
+
+### Errors
+- API failures show a minimal inline error message with "Retry" button (not a modal)
+- Toast notification for transient errors (save failed, vote failed)
+- Supabase Realtime disconnection shows a subtle top banner: "Reconnecting..." with auto-retry (exponential backoff: 1s, 2s, 4s, 8s, max 30s)
+
+### Empty States
+- **First launch (no data)**: Pulse shows "No trends yet — waiting for first scan" with pipeline status
+- **Explore with zero filter results**: "No content matches these filters" with "Clear filters" button
+- **Brand page with no fits**: "No opportunities found for [brand] in the current data"
+- **Saved with no bookmarks**: "Nothing saved yet — use the ☆ button on any content to save it here"
+- **Patterns with insufficient data**: Charts show "Not enough data yet — need at least 3 days of scans"
+- **For You with no recommendations**: "Not enough data to curate picks — check Explore for all content"
+
+---
+
+## Keyboard Shortcut Safety
+
+All single-key shortcuts (G, E, F, S, P, B, /) are suppressed when an `<input>`, `<textarea>`, or `[contenteditable]` element is focused. Only modifier shortcuts (Esc, arrow keys) work during text input.
+
+---
+
+## Development Setup
+
+- In development, `vite.config.ts` proxies `/api/*` to `http://localhost:3001` (Express backend)
+- `npm run dev` starts Vite dev server on port 5173 with HMR
+- `npm run build` produces `frontend/dist/` for production
+- Production: Express serves `frontend/dist/` as static files with SPA fallback
+
+---
+
+## `saved_items` Constraint
+
+`saved_items` has a `UNIQUE(trend_id)` constraint — each trend can only be saved once. Toggle behavior: if already saved, `DELETE`; if not, `INSERT`.
 
 ---
 
