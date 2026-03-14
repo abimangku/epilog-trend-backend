@@ -6,6 +6,7 @@ const {
 const {
   detectCulturalSignals,
   isIndonesianContent,
+  getActiveCulturalMoments,
 } = require('../src/patterns/cultural');
 
 // ===========================================================================
@@ -286,5 +287,61 @@ describe('isIndonesianContent', () => {
     // "bali" tag should match, but "balinese" tag should not
     expect(isIndonesianContent('Beach', ['bali'])).toBeCloseTo(0.2);
     expect(isIndonesianContent('Beach', ['balinese'])).toBe(0);
+  });
+});
+
+// ===========================================================================
+// cultural.js — getActiveCulturalMoments
+// ===========================================================================
+
+describe('getActiveCulturalMoments', () => {
+  it('returns ramadan for March 15', () => {
+    const moments = getActiveCulturalMoments(new Date('2026-03-15'));
+    expect(moments.some(m => m.name === 'ramadan')).toBe(true);
+  });
+
+  it('returns independence_day for August 17', () => {
+    const moments = getActiveCulturalMoments(new Date('2026-08-17'));
+    expect(moments.some(m => m.name === 'independence_day')).toBe(true);
+  });
+
+  it('returns payday for the 25th of any month', () => {
+    const moments = getActiveCulturalMoments(new Date('2026-06-25'));
+    expect(moments.some(m => m.name === 'payday')).toBe(true);
+  });
+
+  it('returns payday for the 1st of any month', () => {
+    const moments = getActiveCulturalMoments(new Date('2026-06-01'));
+    expect(moments.some(m => m.name === 'payday')).toBe(true);
+  });
+
+  it('returns empty for a non-event date like May 15', () => {
+    const moments = getActiveCulturalMoments(new Date('2026-05-15'));
+    expect(moments.length).toBe(0);
+  });
+
+  it('returns harbolnas for 11.11', () => {
+    const moments = getActiveCulturalMoments(new Date('2026-11-11'));
+    expect(moments.some(m => m.name === 'harbolnas')).toBe(true);
+  });
+
+  it('handles year-end wrapping (Dec 25)', () => {
+    const moments = getActiveCulturalMoments(new Date('2026-12-25'));
+    expect(moments.some(m => m.name === 'year_end')).toBe(true);
+  });
+
+  it('handles year-end wrapping (Jan 3)', () => {
+    const moments = getActiveCulturalMoments(new Date('2026-01-03'));
+    expect(moments.some(m => m.name === 'year_end')).toBe(true);
+  });
+
+  it('returns rainy_season for November', () => {
+    const moments = getActiveCulturalMoments(new Date('2026-11-15'));
+    expect(moments.some(m => m.name === 'rainy_season')).toBe(true);
+  });
+
+  it('does not return rainy_season for June', () => {
+    const moments = getActiveCulturalMoments(new Date('2026-06-15'));
+    expect(moments.some(m => m.name === 'rainy_season')).toBe(false);
   });
 });

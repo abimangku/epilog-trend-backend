@@ -37,7 +37,7 @@ const {
   compositeScore,
 } = require('./scoring/classifier');
 const { detectFormat, calculatePatternScore } = require('./patterns/formats');
-const { detectCulturalSignals } = require('./patterns/cultural');
+const { detectCulturalSignals, getActiveCulturalMoments } = require('./patterns/cultural');
 const {
   supabase,
   generateTrendHash,
@@ -215,8 +215,19 @@ async function runPipeline() {
         // --- Pattern detection ---
         const formats = detectFormat(video.title, video.hashtags);
         const culturalSignals = detectCulturalSignals(video.title, video.hashtags);
+
+        // --- Calendar boost ---
+        const activeMoments = getActiveCulturalMoments();
+        let calendarBoost = 0;
+        if (activeMoments.length > 0 && culturalSignals.length > 0) {
+          const matchingMoment = activeMoments.find(m => culturalSignals.includes(m.name));
+          if (matchingMoment) {
+            calendarBoost = matchingMoment.score_boost;
+          }
+        }
+
         const patternScore = calculatePatternScore(
-          formats, culturalSignals, replicationCount
+          formats, culturalSignals, replicationCount, calendarBoost
         );
 
         // --- Composite score ---

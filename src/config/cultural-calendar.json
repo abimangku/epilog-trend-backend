@@ -1,0 +1,88 @@
+{
+  "events": [
+    {
+      "name": "ramadan",
+      "label": "Ramadan",
+      "periods": [
+        { "start": "03-01", "end": "04-10", "note": "Approximate — shifts ~11 days/year per Islamic calendar" }
+      ],
+      "brand_relevance": { "stella": "high", "hit_kecoa": "moderate", "nyu": "moderate" },
+      "score_boost": 20
+    },
+    {
+      "name": "lebaran",
+      "label": "Lebaran / Idul Fitri",
+      "periods": [
+        { "start": "04-05", "end": "04-20", "note": "Approximate — follows Ramadan end" }
+      ],
+      "brand_relevance": { "stella": "peak", "hit_kecoa": "low", "nyu": "high" },
+      "score_boost": 25
+    },
+    {
+      "name": "imlek",
+      "label": "Imlek (Chinese New Year)",
+      "periods": [
+        { "start": "01-20", "end": "02-10" }
+      ],
+      "brand_relevance": { "stella": "moderate", "hit_kecoa": "low", "nyu": "moderate" },
+      "score_boost": 10
+    },
+    {
+      "name": "independence_day",
+      "label": "Hari Kemerdekaan (17 Agustus)",
+      "periods": [
+        { "start": "08-10", "end": "08-20" }
+      ],
+      "brand_relevance": { "stella": "moderate", "hit_kecoa": "moderate", "nyu": "low" },
+      "score_boost": 10
+    },
+    {
+      "name": "school_season",
+      "label": "Back to School",
+      "periods": [
+        { "start": "07-01", "end": "07-20" }
+      ],
+      "brand_relevance": { "stella": "low", "hit_kecoa": "low", "nyu": "high" },
+      "score_boost": 10
+    },
+    {
+      "name": "year_end",
+      "label": "Year-End / Natal / New Year",
+      "periods": [
+        { "start": "12-15", "end": "01-05" }
+      ],
+      "brand_relevance": { "stella": "moderate", "hit_kecoa": "low", "nyu": "moderate" },
+      "score_boost": 10
+    },
+    {
+      "name": "harbolnas",
+      "label": "Harbolnas / Mega Sales",
+      "periods": [
+        { "start": "09-09", "end": "09-12" },
+        { "start": "10-10", "end": "10-12" },
+        { "start": "11-11", "end": "11-13" },
+        { "start": "12-12", "end": "12-14" }
+      ],
+      "brand_relevance": { "stella": "moderate", "hit_kecoa": "moderate", "nyu": "high" },
+      "score_boost": 15
+    },
+    {
+      "name": "rainy_season",
+      "label": "Musim Hujan (Rainy Season)",
+      "periods": [
+        { "start": "10-01", "end": "03-31" }
+      ],
+      "brand_relevance": { "stella": "moderate", "hit_kecoa": "peak", "nyu": "low" },
+      "score_boost": 10
+    },
+    {
+      "name": "payday",
+      "label": "Tanggal Gajian (Payday)",
+      "periods": [
+        { "start": "MM-25", "end": "MM-01", "recurring": "monthly" }
+      ],
+      "brand_relevance": { "stella": "moderate", "hit_kecoa": "moderate", "nyu": "moderate" },
+      "score_boost": 5
+    }
+  ]
+}

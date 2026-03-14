@@ -3,6 +3,8 @@
  * No side effects, no I/O, no external dependencies.
  */
 
+const calendarData = require('../config/cultural-calendar.json');
+
 /**
  * Cultural signal keyword map. Keys are signal names, values are arrays of
  * case-insensitive keywords to match against title + hashtags.
@@ -121,10 +123,73 @@ function isIndonesianContent(title, hashtags) {
   return Math.min(confidence, 1.0);
 }
 
+/**
+ * Returns cultural moments that are currently active for a given date.
+ * Checks the cultural-calendar.json config for matching date ranges.
+ *
+ * @param {Date} [date=new Date()] - Date to check
+ * @returns {Array<{name: string, label: string, score_boost: number, brand_relevance: object}>}
+ */
+function getActiveCulturalMoments(date) {
+  const d = date || new Date();
+  const month = d.getMonth() + 1; // 1-12
+  const day = d.getDate();
+  const mmdd = `${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+  const active = [];
+
+  for (const event of calendarData.events) {
+    for (const period of event.periods) {
+      if (period.recurring === 'monthly') {
+        // Payday: 25th to 1st of next month
+        if (day >= 25 || day <= 1) {
+          active.push({
+            name: event.name,
+            label: event.label,
+            score_boost: event.score_boost,
+            brand_relevance: event.brand_relevance,
+          });
+        }
+        break;
+      }
+
+      const start = period.start;
+      const end = period.end;
+
+      if (start <= end) {
+        // Normal range (e.g., "03-01" to "04-10")
+        if (mmdd >= start && mmdd <= end) {
+          active.push({
+            name: event.name,
+            label: event.label,
+            score_boost: event.score_boost,
+            brand_relevance: event.brand_relevance,
+          });
+          break;
+        }
+      } else {
+        // Wrapping range (e.g., "12-15" to "01-05" or "10-01" to "03-31")
+        if (mmdd >= start || mmdd <= end) {
+          active.push({
+            name: event.name,
+            label: event.label,
+            score_boost: event.score_boost,
+            brand_relevance: event.brand_relevance,
+          });
+          break;
+        }
+      }
+    }
+  }
+
+  return active;
+}
+
 module.exports = {
   CULTURAL_KEYWORDS,
   INDONESIAN_LOCATION_TAGS,
   INDONESIAN_WORDS,
   detectCulturalSignals,
   isIndonesianContent,
+  getActiveCulturalMoments,
 };

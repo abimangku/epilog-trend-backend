@@ -52,25 +52,29 @@ function detectFormat(title, hashtags) {
 }
 
 /**
- * Calculates a pattern score from detected formats, cultural signals, and replication.
+ * Calculates a pattern score from detected formats, cultural signals, replication,
+ * and optional calendar-based boost.
  *
  * Components:
  * - Format bonus: +10 per format, capped at 30
  * - Cultural signal bonus: +15 per signal, capped at 30
  * - Replication boost: (replicationCount / 100) * 40, capped at 40
+ * - Calendar boost: from cultural calendar (0-25)
  * - Total capped at 100
  *
  * @param {string[]} formats - Output from detectFormat()
  * @param {string[]} culturalSignals - Output from detectCulturalSignals()
  * @param {number} replicationCount - Number of creators replicating the format
+ * @param {number} [calendarBoost=0] - Score boost from active cultural calendar events
  * @returns {number} Pattern score 0-100
  */
-function calculatePatternScore(formats, culturalSignals, replicationCount) {
+function calculatePatternScore(formats, culturalSignals, replicationCount, calendarBoost) {
   const formatBonus = Math.min((formats || []).length * 10, 30);
   const culturalBonus = Math.min((culturalSignals || []).length * 15, 30);
   const replicationBoost = Math.min(((replicationCount || 0) / 100) * 40, 40);
+  const calBoost = calendarBoost || 0;
 
-  const total = formatBonus + culturalBonus + replicationBoost;
+  const total = formatBonus + culturalBonus + replicationBoost + calBoost;
   return Math.round(Math.min(total, 100) * 100) / 100;
 }
 
