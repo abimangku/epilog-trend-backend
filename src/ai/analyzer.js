@@ -11,6 +11,7 @@ const axios = require('axios');
 const fs = require('fs');
 const logger = require('../logger');
 const { withRetry } = require('../utils/retry');
+const { calibrateConfidence } = require('../scoring/confidence');
 
 const MOD = 'AI_ANALYZER';
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
@@ -298,7 +299,10 @@ Now analyze the trend above with the same depth and specificity. Respond with th
 
     const model = data.model || MODEL;
 
-    logger.log(MOD, `Deep analysis complete: ${(video.title || '').slice(0, 50)}`, { model });
+    const rawConf = Math.round((parsed.confidence || 0) * 100);
+    const calibratedConf = calibrateConfidence(rawConf, video);
+
+    logger.log(MOD, `Deep analysis complete: ${(video.title || '').slice(0, 50)}`, { model, rawConf, calibratedConf });
 
     return {
       analysis_type: 'deep_analysis',
@@ -306,7 +310,9 @@ Now analyze the trend above with the same depth and specificity. Respond with th
       key_insights: parsed.key_insights || [],
       brand_relevance_notes: parsed.cultural_context || '',
       recommended_action: parsed.recommended_action || '',
-      confidence: Math.round((parsed.confidence || 0) * 100),
+      confidence: calibratedConf,
+      raw_confidence: rawConf,
+      calibrated_confidence: calibratedConf,
       relevance_score: parsed.relevance_score || 0,
       virality_score: parsed.virality_score || 0,
       brand_safety_score: parsed.brand_safety_score || 100,

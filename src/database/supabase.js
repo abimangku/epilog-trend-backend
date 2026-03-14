@@ -283,6 +283,8 @@ async function upsertTrendAnalysis(trendId, analysis) {
     brand_relevance_notes: analysis.brand_relevance_notes,
     recommended_action: analysis.recommended_action,
     confidence: analysis.confidence,
+    raw_confidence: analysis.raw_confidence || null,
+    calibrated_confidence: analysis.calibrated_confidence || null,
     relevance_score: analysis.relevance_score || 0,
     virality_score: analysis.virality_score || 0,
     brand_safety_score: analysis.brand_safety_score || 100,
