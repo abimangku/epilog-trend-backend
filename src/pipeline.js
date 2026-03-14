@@ -322,7 +322,11 @@ async function runPipeline() {
     // -----------------------------------------------------------------------
     logger.log(MOD, `--- Phase 1: Trash Gate (${enrichedVideos.length} videos) ---`);
 
-    const verdicts = await trashGate(enrichedVideos.map((ev) => ev.video));
+    const verdicts = await trashGate(enrichedVideos.map((ev) => ({
+      ...ev.video,
+      engagement_rate: ev.enrichedTrend.engagement_rate,
+      share_ratio: ev.enrichedTrend.share_ratio,
+    })));
     const verdictMap = new Map(verdicts.map((v) => [v.url, v]));
 
     const survivors = enrichedVideos.filter((ev) => {

@@ -94,7 +94,8 @@ async function trashGate(videos) {
   if (videos.length === 0) return [];
 
   const videoList = videos.map((v, i) => {
-    return `[${i}] @${v.author} — "${(v.title || '').slice(0, 100)}" | Likes: ${v.likes} Comments: ${v.comments} Shares: ${v.shares} | Hashtags: ${(v.hashtags || []).join(', ')} | Audio: ${v.audio_title || 'unknown'}`;
+    const shareRatio = v.views > 0 ? ((v.shares / v.views) * 100).toFixed(2) : 'N/A';
+    return `[${i}] @${v.author} — "${(v.title || '').slice(0, 100)}" | Views: ${(v.views || 0).toLocaleString()} Likes: ${v.likes} Comments: ${v.comments} Shares: ${v.shares} Bookmarks: ${v.bookmarks || 0} | Engagement Rate: ${v.engagement_rate || 'N/A'}% | Share Ratio: ${shareRatio}% | Hashtags: ${(v.hashtags || []).join(', ')} | Audio: ${v.audio_title || 'unknown'}`;
   }).join('\n');
 
   const prompt = `You are a TikTok trend filter for Epilog Creative, a digital marketing agency in Jakarta, Indonesia. Your clients are Godrej Indonesia brands (Stella air freshener, HIT Kecoa insecticide, NYU hair color).
@@ -103,6 +104,12 @@ Review these ${videos.length} TikTok FYP videos and classify each as SIGNAL or N
 
 SIGNAL = Worth analyzing deeper. Could be a trend, culturally relevant, has replication potential, interesting for brand marketing. Be generous with emerging signals.
 NOISE = Low-value content. Personal vlog with no trend angle, too niche, no brand relevance, duplicate of common format with no twist.
+
+USE THE ENGAGEMENT DATA to inform your decision:
+- High share ratio (>1%) = strong virality signal, lean toward SIGNAL
+- High bookmark count relative to likes = evergreen/reference content, lean toward SIGNAL
+- Very low engagement across all metrics = likely NOISE
+- But don't reject low-view content from small creators if the format is interesting — small creators with novel formats are STRONG signals
 
 Be aggressive — only 30-40% should survive as SIGNAL. We're looking for trends with marketing potential for Indonesian FMCG brands.
 
