@@ -394,6 +394,109 @@ async function upsertBrandFits(brandFits) {
   return data || [];
 }
 
+/**
+ * Creates a new pipeline run record. Called at pipeline start.
+ * @returns {Promise<string|null>} The run ID (UUID), or null on failure
+ */
+async function createPipelineRun() {
+  const { data, error } = await retrySupabase(
+    'create pipeline run',
+    () => supabase.from('pipeline_runs').insert({
+      started_at: new Date().toISOString(),
+      status: 'running',
+    }).select('id').single()
+  );
+
+  if (error) {
+    logger.error(MOD, 'Failed to create pipeline run', error);
+    return null;
+  }
+
+  return data.id;
+}
+
+/**
+ * Updates an existing pipeline run with results. Called at pipeline end.
+ * @param {string} runId - Pipeline run UUID
+ * @param {object} update - Fields to update (status, videos_scraped, etc.)
+ */
+async function updatePipelineRun(runId, update) {
+  if (!runId) return;
+
+  const { error } = await retrySupabase(
+    `update pipeline run ${runId.slice(0, 8)}`,
+    () => supabase.from('pipeline_runs').update({
+      ...update,
+      completed_at: new Date().toISOString(),
+    }).eq('id', runId)
+  );
+
+  if (error) {
+    logger.error(MOD, `Failed to update pipeline run ${runId}`, error);
+  }
+}
+
+/**
+ * Creates a pipeline event for observability.
+ * @param {string|null} runId - Pipeline run UUID (null for non-run events)
+ * @param {string} stage - Pipeline stage name
+ * @param {string} severity - 'info' | 'warning' | 'critical'
+ * @param {string} message - Human-readable message
+ * @param {object} [data] - Additional structured data
+ */
+async function createPipelineEvent(runId, stage, severity, message, data = {}) {
+  const { error } = await retrySupabase(
+    `event: ${stage}/${severity}`,
+    () => supabase.from('pipeline_events').insert({
+      run_id: runId,
+      stage,
+      severity,
+      message,
+      data,
+    })
+  );
+
+  if (error) {
+    logger.error(MOD, `Failed to create pipeline event: ${message}`, error);
+  }
+}
+
+/**
+ * Checks database connectivity with retry. Returns true if reachable.
+ * Retries 3 times with 10-second delays before giving up.
+ * @returns {Promise<boolean>}
+ */
+async function checkConnection() {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const ok = await testConnection();
+    if (ok) return true;
+
+    if (attempt < 2) {
+      logger.warn(MOD, `Connection check failed (attempt ${attempt + 1}/3) — retrying in 10s`);
+      await new Promise((r) => setTimeout(r, 10000));
+    }
+  }
+
+  logger.error(MOD, 'Connection check failed after 3 attempts');
+  return false;
+}
+
+/**
+ * Updates the thumbnail_storage_url for a trend.
+ * @param {string} trendId - Trend UUID
+ * @param {string} storageUrl - Supabase Storage URL
+ */
+async function updateTrendThumbnail(trendId, storageUrl) {
+  const { error } = await retrySupabase(
+    `thumbnail ${trendId.slice(0, 8)}`,
+    () => supabase.from('trends').update({ thumbnail_storage_url: storageUrl }).eq('id', trendId)
+  );
+
+  if (error) {
+    logger.warn(MOD, `Failed to update thumbnail URL for ${trendId}`, error);
+  }
+}
+
 module.exports = {
   supabase,
   generateTrendHash,
@@ -405,4 +508,9 @@ module.exports = {
   upsertTrendAnalysis,
   insertCrossTrendSynthesis,
   upsertBrandFits,
+  createPipelineRun,
+  updatePipelineRun,
+  createPipelineEvent,
+  checkConnection,
+  updateTrendThumbnail,
 };
