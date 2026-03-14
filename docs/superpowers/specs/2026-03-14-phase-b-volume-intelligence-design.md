@@ -30,8 +30,8 @@ Computed before Trash Gate. Zero LLM cost. Feeds INTO the gate for smarter filte
 - **File:** `src/scoring/engagement.js`
 - **New function:** `calculateAcceleration(currentVelocity, previousVelocity)`
 - **Logic:** `acceleration = currentVelocity - previousVelocity`, normalized to -100..+100
-- **Data source:** Previous trend's `velocity_score` from DB (already queried via `findExistingTrend`)
-- **Pipeline integration:** Computed in Step 3 after velocity calculation
+- **Data source:** Previous trend's `velocity_score` from DB. Requires extending `findExistingTrend()` select from `'id, scraped_at'` to `'id, scraped_at, velocity_score'`
+- **Pipeline integration:** Computed in Step 3 after velocity calculation. Uses `existing.velocity_score || 0` as `previousVelocity`
 - **DB column:** `trends.acceleration NUMERIC DEFAULT 0`
 
 #### 1B. Creator Tier Classification
@@ -39,13 +39,18 @@ Computed before Trash Gate. Zero LLM cost. Feeds INTO the gate for smarter filte
 - **File:** `src/scoring/engagement.js`
 - **New function:** `classifyCreatorTier(followerCount)`
 - **Tiers:**
-  - `nano`: < 10,000 followers
-  - `micro`: 10,000 - 100,000
-  - `mid`: 100,000 - 500,000
-  - `macro`: 500,000 - 1,000,000
-  - `mega`: > 1,000,000
-- **Data source:** `$PREFETCH_CACHE.recommendItemList[].author.fans` (scraper extraction)
-- **Scraper change:** Extract `follower_count` from JS state + API intercept responses
+  - `unknown`: followerCount is 0/null/undefined (data unavailable — excluded from saturation math)
+  - `nano`: 1 - 9,999 followers
+  - `micro`: 10,000 - 99,999
+  - `mid`: 100,000 - 499,999
+  - `macro`: 500,000 - 999,999
+  - `mega`: >= 1,000,000
+- **Data source:** Follower count from TikTok JS state (3 sources with different field paths):
+  - `$PREFETCH_CACHE`: `item.authorStats.followerCount` (primary) or `item.author.fans` (fallback)
+  - `__UNIVERSAL_DATA_FOR_REHYDRATION__`: same paths as prefetch
+  - API intercept responses: `item.authorStats.followerCount` (primary) or `item.author.fans` (fallback)
+  - All three sources use the same TikTok item structure, so one extraction path works
+- **Scraper change:** Add `followerCount` field to normalized items in `_extractVideoItemsFromJsState()` and `_normalizeApiItem()`. Fallback: `followerCount: 0` when unavailable (classified as `unknown` tier, not `nano`)
 - **Replaces:** Hardcoded `author_tier: 'unknown'` in `src/scrapers/tiktok.js`
 - **DB column:** `trends.author_tier` (already exists, currently always `'unknown'`)
 
@@ -56,8 +61,9 @@ Computed before Trash Gate. Zero LLM cost. Feeds INTO the gate for smarter filte
 - **Logic:**
   - Find all videos in batch sharing the same audio or overlapping hashtags
   - Count creators by tier: big = macro + mega, small = nano + micro + mid
+  - `totalReplicators` excludes `unknown`-tier creators (no follower data = excluded from both numerator and denominator)
   - `saturation = bigCreatorCount / totalReplicators` (0..1 float)
-  - Returns 0 if no replicators found
+  - Returns 0 if no known-tier replicators found
 - **Interpretation:**
   - < 0.3 = early signal (small creators leading) — high value
   - 0.3 - 0.6 = crossing over
@@ -109,6 +115,7 @@ Added to existing LLM prompts. Zero new API calls.
   - `production_difficulty TEXT DEFAULT 'medium'`
   - `production_requirements TEXT`
   - `estimated_production_hours NUMERIC`
+  - `requires_original_audio BOOLEAN DEFAULT false`
 - **Pipeline change:** Map new fields in `scoreBrandFit()` return object
 - **Cost:** ~60 extra output tokens per call, ~$0.00108/run
 
@@ -140,6 +147,7 @@ ALTER TABLE trends ADD COLUMN IF NOT EXISTS saturation_index NUMERIC DEFAULT 0;
 ALTER TABLE client_brand_fit ADD COLUMN IF NOT EXISTS production_difficulty TEXT DEFAULT 'medium';
 ALTER TABLE client_brand_fit ADD COLUMN IF NOT EXISTS production_requirements TEXT;
 ALTER TABLE client_brand_fit ADD COLUMN IF NOT EXISTS estimated_production_hours NUMERIC;
+ALTER TABLE client_brand_fit ADD COLUMN IF NOT EXISTS requires_original_audio BOOLEAN DEFAULT false;
 ```
 
 Note: `trends.author_tier` already exists. Emotion and niche trajectory fields live in `trend_analysis` JSONB (no migration needed).
@@ -148,12 +156,18 @@ Note: `trends.author_tier` already exists. Emotion and niche trajectory fields l
 
 ```
 FYP Scrape (60 videos, with follower counts)
-  -> Tier 1 Math Layer (ALL 60 videos):
+  -> Step 2: Batch replication analysis (existing)
+  -> Step 3: Per-video loop (ALL 60 videos):
       - Engagement rate, share ratio (existing)
-      - Velocity + Acceleration (NEW)
-      - Creator tier classification (NEW)
-      - Replication + Saturation index (NEW)
-  -> Upsert all 60 trends + engagement snapshots (existing)
+      - Velocity + Acceleration (NEW — needs previous velocity_score from DB)
+      - Creator tier classification (NEW — from follower_count)
+      - Pattern detection (existing)
+      - Composite score, lifecycle, urgency (existing)
+      - Upsert trend + engagement snapshot (existing)
+  -> Step 3c: Batch saturation pass (NEW — requires all videos from Step 3):
+      - calculateSaturationIndex per video using full batch creator tiers
+      - Update enrichedVideos with saturation_index
+      - Batch DB update: UPDATE trends SET saturation_index = ? WHERE id = ? for each video
   -> Phase 1: Enhanced Trash Gate (60 videos + Tier 1 scores as context)
       -> ~15-18 survivors
   -> Phase 2: Enhanced Deep Analysis (survivors only)
@@ -173,8 +187,8 @@ FYP Scrape (60 videos, with follower counts)
 | `src/scrapers/tiktok.js` | Extract `follower_count` from JS state + API intercept; increase `maxVideos` to 60 |
 | `src/ai/analyzer.js` | Add Tier 1 scores to Trash Gate prompt; add emotion + niche fields to Deep Analysis prompt |
 | `src/ai/brand-fit.js` | Add feasibility fields to prompt + response mapping |
-| `src/pipeline.js` | Compute acceleration, creator tier, saturation; pass to Trash Gate; map new brand fit fields |
-| `src/database/supabase.js` | Add `acceleration`, `saturation_index` to upsertTrend row; add feasibility fields to brand fit upsert |
+| `src/pipeline.js` | Extend `findExistingTrend` select to include `velocity_score`; compute acceleration, creator tier in per-video loop (Step 3); add Step 3c batch pass for saturation index (requires all videos scored first); pass Tier 1 scores to Trash Gate; map new brand fit fields |
+| `src/database/supabase.js` | Add `acceleration` to upsertTrend row; add `updateTrendSaturation(trendId, saturationIndex)` for Step 3c batch update; add feasibility fields (`production_difficulty`, `production_requirements`, `estimated_production_hours`, `requires_original_audio`) to brand fit upsert |
 | `tests/scoring.test.js` | Tests for acceleration, creator tier, saturation index |
 | `supabase/migrations/phase_b_volume_intelligence.sql` | Migration file |
 
