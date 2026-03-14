@@ -9,10 +9,50 @@
 const axios = require('axios');
 const fs = require('fs');
 const logger = require('../logger');
+const { withRetry } = require('../utils/retry');
 
 const MOD = 'AI_BRAND_FIT';
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const MODEL = 'google/gemini-2.0-flash-001';
+
+/**
+ * Calls OpenRouter API with retry on 429 and 5xx errors.
+ * @param {object} payload - The request body
+ * @param {number} [timeout=30000] - Request timeout in ms
+ * @returns {Promise<object>} Parsed response data
+ */
+async function callOpenRouter(payload, timeout = 30000) {
+  return withRetry(async () => {
+    const response = await axios.post(OPENROUTER_URL, payload, {
+      headers: _headers(),
+      timeout,
+    });
+    return response.data;
+  }, {
+    retries: 3,
+    baseDelay: 2000,
+    onRetry: (err, attempt) => {
+      const status = err.response?.status || 'unknown';
+      logger.warn(MOD, `OpenRouter retry ${attempt}/3 (HTTP ${status}): ${err.message}`);
+    },
+  });
+}
+
+/**
+ * Safely parses JSON from LLM response content.
+ * Returns null if parsing fails instead of throwing.
+ * @param {string} content - Raw LLM response string
+ * @param {string} context - Description for logging
+ * @returns {object|null}
+ */
+function safeParseJSON(content, context) {
+  try {
+    return JSON.parse(content);
+  } catch (err) {
+    logger.error(MOD, `JSON parse failed for ${context}: ${content.slice(0, 200)}`, err);
+    return null;
+  }
+}
 
 /**
  * The three Godrej Indonesia brands we score every trend against.
@@ -86,7 +126,7 @@ async function scoreBrandFit(trend, trendId, analysis, screenshotPath) {
   }
 
   try {
-    const response = await axios.post(OPENROUTER_URL, {
+    const data = await callOpenRouter({
       model: MODEL,
       messages: [
         {
@@ -98,15 +138,12 @@ async function scoreBrandFit(trend, trendId, analysis, screenshotPath) {
       temperature: 0.3,
       max_tokens: 2000,
       response_format: { type: 'json_object' },
-    }, {
-      headers: _headers(),
-      timeout: 30000,
-    });
+    }, 30000);
 
-    const content = response.data.choices[0].message.content;
-    const parsed = JSON.parse(content);
+    const content = data.choices[0].message.content;
+    const parsed = safeParseJSON(content, 'brandFit');
 
-    if (!parsed.brands || !Array.isArray(parsed.brands)) {
+    if (!parsed || !parsed.brands || !Array.isArray(parsed.brands)) {
       logger.warn(MOD, 'Unexpected response structure — missing brands array');
       return [];
     }
@@ -134,11 +171,8 @@ async function scoreBrandFit(trend, trendId, analysis, screenshotPath) {
 
     return results;
   } catch (err) {
-    if (err.response) {
-      logger.error(MOD, `OpenRouter API error (${err.response.status}): ${(trend.title || '').slice(0, 50)}`, err.response.data);
-    } else {
-      logger.error(MOD, `Failed to score brand fit: ${(trend.title || '').slice(0, 50)}`, err);
-    }
+    const status = err.response?.status || 'unknown';
+    logger.error(MOD, `Brand fit failed after retries (HTTP ${status}): ${(trend.title || '').slice(0, 50)}`, err);
     return [];
   }
 }
