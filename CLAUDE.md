@@ -14,7 +14,7 @@ Clients: Godrej Indonesia brands — Stella (air freshener), HIT Kecoa (insectic
 - **Database:** Supabase via @supabase/supabase-js
 - **Scheduler:** node-cron aligned to WIB (UTC+7) peak hours
 - **Server:** Express (health check + webhook trigger endpoint only)
-- **Notifications:** Slack webhooks via axios
+- **Notifications:** (Slack integration removed)
 
 ## Folder Structure
 
@@ -130,9 +130,10 @@ FYP Scroll + Screenshot → Scoring Engine → Trash Gate (batch LLM)
 | `SUPABASE_ANON_KEY` | Supabase anonymous/public API key |
 | `PORT` | Express server port (default: `3001`) |
 | `AUTH_SECRET` | Bearer token for POST /scrape endpoint |
-| `SLACK_WEBHOOK_URL` | Slack incoming webhook URL |
 | `OPENROUTER_API_KEY` | OpenRouter API key for AI pipeline |
 | `NODE_ENV` | `development` or `production` |
+| `JWT_SECRET` | Secret key for signing JWT tokens (min 32 chars recommended) |
+| `TEAM_PIN_HASH` | bcrypt hash of the team PIN for frontend auth |
 
 Dotenv is loaded once at the top of `src/server.js`. No other file should call `require('dotenv').config()`.
 
