@@ -21,8 +21,14 @@ export function RecommendationCard({ trend, trendIds }: RecommendationCardProps)
     >
       {/* Thumbnail */}
       <div className="w-[80px] h-[80px] rounded-lg overflow-hidden flex-shrink-0">
-        {trend.thumbnail_url ? (
-          <img src={trend.thumbnail_url} alt="" className="w-full h-full object-cover" loading="lazy" />
+        {(trend.thumbnail_storage_url || trend.thumbnail_url) ? (
+          <img
+            src={trend.thumbnail_storage_url || trend.thumbnail_url!}
+            alt=""
+            className="w-full h-full object-cover"
+            loading="lazy"
+            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+          />
         ) : (
           <div
             className="w-full h-full flex items-center justify-center text-[9px]"

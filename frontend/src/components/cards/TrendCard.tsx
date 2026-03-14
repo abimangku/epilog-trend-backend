@@ -37,13 +37,14 @@ export function TrendCard({ trend, brandFits = [], trendIds }: TrendCardProps) {
       onClick={() => openDetailPanel(trend.id, trendIds)}
     >
       {/* Thumbnail */}
-      {trend.thumbnail_url ? (
+      {(trend.thumbnail_storage_url || trend.thumbnail_url) ? (
         <div className="aspect-[9/12] overflow-hidden">
           <img
-            src={trend.thumbnail_url}
+            src={trend.thumbnail_storage_url || trend.thumbnail_url!}
             alt=""
             className="w-full h-full object-cover"
             loading="lazy"
+            onError={(e) => { e.currentTarget.style.display = 'none'; }}
           />
         </div>
       ) : (

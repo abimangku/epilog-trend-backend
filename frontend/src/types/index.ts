@@ -28,6 +28,7 @@ export interface Trend {
   classification: Classification;
   urgency_level: UrgencyLevel;
   thumbnail_url: string | null;
+  thumbnail_storage_url: string | null;
   video_embed_url: string | null;
   scraped_at: string;
   created_at: string;

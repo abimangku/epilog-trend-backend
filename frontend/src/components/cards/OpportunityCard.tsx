@@ -33,8 +33,14 @@ export function OpportunityCard({ trend, brandFit, trendIds }: OpportunityCardPr
     >
       {/* Thumbnail */}
       <div className="w-[220px] flex-shrink-0">
-        {trend.thumbnail_url ? (
-          <img src={trend.thumbnail_url} alt="" className="w-full h-full object-cover" loading="lazy" />
+        {(trend.thumbnail_storage_url || trend.thumbnail_url) ? (
+          <img
+            src={trend.thumbnail_storage_url || trend.thumbnail_url!}
+            alt=""
+            className="w-full h-full object-cover"
+            loading="lazy"
+            onError={(e) => { e.currentTarget.style.display = 'none'; }}
+          />
         ) : (
           <div
             className="w-full h-full flex items-center justify-center text-[11px]"
