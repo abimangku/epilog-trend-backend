@@ -9,6 +9,7 @@ import { useSavedItems, useSaveTrend, useUnsaveTrend } from '../../hooks/use-col
 import { useKeyboard } from '../../hooks/use-keyboard';
 import { formatNumber, timeAgo } from '../../lib/utils';
 import { Badge } from '../shared/Badge';
+import { DetailSkeleton } from '../shared/Skeleton';
 import { VideoEmbed } from './VideoEmbed';
 import { MetricTiles } from './MetricTiles';
 import { BrandFitSection } from './BrandFitSection';
@@ -276,8 +277,8 @@ export function DetailPanel() {
                 <UserAssessment trendId={trend.id} />
               </div>
             ) : (
-              <div className="p-5 text-[13px]" style={{ color: 'var(--text-muted)' }}>
-                Loading...
+              <div className="p-5">
+                <DetailSkeleton />
               </div>
             )}
           </motion.div>

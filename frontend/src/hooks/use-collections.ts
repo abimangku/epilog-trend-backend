@@ -21,7 +21,21 @@ export function useSaveTrend() {
   return useMutation({
     mutationFn: (trendId: string) =>
       apiFetch(`/saved/${trendId}`, { method: 'POST' }),
-    onSuccess: () => {
+    onMutate: async (trendId) => {
+      await queryClient.cancelQueries({ queryKey: ['saved-items'] });
+      const previous = queryClient.getQueryData<SavedItem[]>(['saved-items']);
+      queryClient.setQueryData<SavedItem[]>(['saved-items'], (old) => [
+        ...(old || []),
+        { id: 'temp-' + trendId, trend_id: trendId, saved_at: new Date().toISOString(), collections: [] },
+      ]);
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(['saved-items'], context.previous);
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['saved-items'] });
     },
   });
@@ -32,7 +46,20 @@ export function useUnsaveTrend() {
   return useMutation({
     mutationFn: (trendId: string) =>
       apiFetch(`/saved/${trendId}`, { method: 'DELETE' }),
-    onSuccess: () => {
+    onMutate: async (trendId) => {
+      await queryClient.cancelQueries({ queryKey: ['saved-items'] });
+      const previous = queryClient.getQueryData<SavedItem[]>(['saved-items']);
+      queryClient.setQueryData<SavedItem[]>(['saved-items'], (old) =>
+        (old || []).filter((item) => item.trend_id !== trendId)
+      );
+      return { previous };
+    },
+    onError: (_err, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(['saved-items'], context.previous);
+      }
+    },
+    onSettled: () => {
       queryClient.invalidateQueries({ queryKey: ['saved-items'] });
     },
   });
