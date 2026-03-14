@@ -3,7 +3,7 @@ require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const logger = require('./logger');
-const { testConnection, supabase } = require('./database/supabase');
+const { testConnection, supabase, acknowledgePipelineEvents } = require('./database/supabase');
 const { runPipelineOnce } = require('./pipeline');
 const { validateEnv } = require('./config/validate-env');
 const authRouter = require('./api/auth');
@@ -12,6 +12,7 @@ const savedRouter = require('./api/saved');
 const collectionsRouter = require('./api/collections');
 const patternsRouter = require('./api/patterns');
 const forYouRouter = require('./api/for-you');
+const schedulesRouter = require('./api/schedules');
 const helmet = require('helmet');
 const { pinLimiter, triggerLimiter, apiLimiter } = require('./middleware/rate-limiter');
 
@@ -104,6 +105,16 @@ app.use('/api/saved', savedRouter);
 app.use('/api/collections', collectionsRouter);
 app.use('/api/patterns', patternsRouter);
 app.use('/api/for-you', forYouRouter);
+app.use('/api/schedules', schedulesRouter);
+
+app.post('/api/events/acknowledge', async (req, res) => {
+  try {
+    await acknowledgePipelineEvents(req.body.eventIds || null);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to acknowledge events' });
+  }
+});
 
 // ---------------------------------------------------------------------------
 // GET /health

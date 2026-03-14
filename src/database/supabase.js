@@ -497,6 +497,61 @@ async function updateTrendThumbnail(trendId, storageUrl) {
   }
 }
 
+/**
+ * Gets all schedule config rows, ordered by label.
+ * @returns {Promise<object[]>}
+ */
+async function getScheduleConfig() {
+  const { data, error } = await supabase
+    .from('schedule_config')
+    .select('*')
+    .order('label');
+
+  if (error) {
+    logger.error(MOD, 'Failed to get schedule config', error);
+    return [];
+  }
+  return data || [];
+}
+
+/**
+ * Updates a single schedule config row.
+ * @param {string} id - Row UUID
+ * @param {object} update - Fields to update
+ */
+async function updateScheduleConfig(id, update) {
+  const { error } = await supabase
+    .from('schedule_config')
+    .update(update)
+    .eq('id', id);
+
+  if (error) {
+    logger.error(MOD, `Failed to update schedule config ${id}`, error);
+    throw error;
+  }
+}
+
+/**
+ * Marks pipeline events as acknowledged.
+ * @param {string[]} [eventIds] - Specific event IDs, or null to acknowledge all unacknowledged
+ */
+async function acknowledgePipelineEvents(eventIds) {
+  let query = supabase
+    .from('pipeline_events')
+    .update({ acknowledged: true });
+
+  if (eventIds && eventIds.length > 0) {
+    query = query.in('id', eventIds);
+  } else {
+    query = query.eq('acknowledged', false);
+  }
+
+  const { error } = await query;
+  if (error) {
+    logger.error(MOD, 'Failed to acknowledge pipeline events', error);
+  }
+}
+
 module.exports = {
   supabase,
   generateTrendHash,
@@ -513,4 +568,7 @@ module.exports = {
   createPipelineEvent,
   checkConnection,
   updateTrendThumbnail,
+  getScheduleConfig,
+  updateScheduleConfig,
+  acknowledgePipelineEvents,
 };
