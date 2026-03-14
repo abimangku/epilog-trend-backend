@@ -129,6 +129,7 @@ async function runPipeline() {
   };
 
   const runId = await createPipelineRun();
+  logger.setRunId(runId);
   const runErrors = [];
 
   try {
@@ -419,11 +420,13 @@ async function runPipeline() {
     await createPipelineEvent(runId, 'complete', 'info',
       `Pipeline ${runStatus}: ${stats.scraped} scraped, ${stats.analyzed} analyzed, ${stats.errors} errors`);
 
+    logger.setRunId(null);
   } catch (err) {
     logger.error(MOD, 'Pipeline failed', err);
     runErrors.push({ stage: 'pipeline', error: err.message });
     await updatePipelineRun(runId, { status: 'failed', errors: runErrors });
     await createPipelineEvent(runId, 'pipeline', 'critical', `Pipeline crashed: ${err.message}`);
+    logger.setRunId(null);
   }
 
   return stats;
