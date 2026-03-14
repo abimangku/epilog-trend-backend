@@ -2,6 +2,7 @@ const express = require('express');
 const logger = require('../logger');
 const { supabase } = require('../database/supabase');
 const { detectFormat } = require('../patterns/formats');
+const { validateDays } = require('../middleware/validate');
 
 const MOD = 'API:PATTERNS';
 const router = express.Router();
@@ -12,7 +13,7 @@ const router = express.Router();
  */
 router.get('/formats', async (req, res) => {
   try {
-    const days = parseInt(req.query.days) || 14;
+    const days = validateDays(req.query.days);
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
     const { data: trends, error } = await supabase
@@ -56,7 +57,7 @@ router.get('/formats', async (req, res) => {
  */
 router.get('/audio', async (req, res) => {
   try {
-    const totalDays = parseInt(req.query.days) || 6;
+    const totalDays = validateDays(req.query.days);
     const halfDays = Math.floor(totalDays / 2);
     const now = new Date();
     const midpoint = new Date(now - halfDays * 24 * 60 * 60 * 1000);

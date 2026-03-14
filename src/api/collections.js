@@ -1,6 +1,7 @@
 const express = require('express');
 const logger = require('../logger');
 const { supabase } = require('../database/supabase');
+const { sanitizeString } = require('../middleware/validate');
 
 const MOD = 'API:COLLECTIONS';
 const router = express.Router();
@@ -61,7 +62,7 @@ router.post('/', async (req, res) => {
 
     const { data, error } = await supabase
       .from('collections')
-      .insert({ name: name.trim() })
+      .insert({ name: sanitizeString(name, 100) })
       .select()
       .single();
 
@@ -91,7 +92,7 @@ router.put('/:id', async (req, res) => {
 
     const { data, error } = await supabase
       .from('collections')
-      .update({ name: name.trim(), updated_at: new Date().toISOString() })
+      .update({ name: sanitizeString(name, 100), updated_at: new Date().toISOString() })
       .eq('id', id)
       .select()
       .single();
