@@ -6,6 +6,8 @@ const { testConnection, supabase } = require('./database/supabase');
 const { runPipelineOnce } = require('./pipeline');
 const authRouter = require('./api/auth');
 const { requireAuth: requireJwtAuth } = require('./api/middleware');
+const savedRouter = require('./api/saved');
+const collectionsRouter = require('./api/collections');
 
 const MOD = 'SERVER';
 
@@ -99,6 +101,9 @@ app.use('/api/auth', authRouter);
 
 // All other /api/* routes require JWT
 app.use('/api', requireJwtAuth);
+
+app.use('/api/saved', savedRouter);
+app.use('/api/collections', collectionsRouter);
 
 // ---------------------------------------------------------------------------
 // GET /health
