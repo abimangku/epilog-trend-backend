@@ -51,6 +51,9 @@ export interface TrendAnalysis {
   replication_signal_score: number;
   trash_check: { passed: boolean; reasons: string[] } | null;
   model_version: string | null;
+  analysis_version: string | null;
+  raw_confidence: number | null;
+  calibrated_confidence: number | null;
   analyzed_at: string;
   created_at: string;
 }
@@ -71,6 +74,8 @@ export interface ClientBrandFit {
   hours_to_act: number | null;
   brand_entry_confidence: number;
   brief_generated: string | null;
+  risk_notes: string | null;
+  timing: string | null;
   created_at: string;
 }
 
