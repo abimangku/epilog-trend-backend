@@ -15,6 +15,24 @@ const MOD = 'AI_BRAND_FIT';
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
 const MODEL = 'google/gemini-2.0-flash-001';
 
+/** Module-level token usage counter — reset per pipeline run */
+let _runTokens = { prompt: 0, completion: 0 };
+
+/**
+ * Resets the token counter. Called at pipeline start.
+ */
+function resetTokenCounter() {
+  _runTokens = { prompt: 0, completion: 0 };
+}
+
+/**
+ * Returns current token usage. Called at pipeline end.
+ * @returns {{ prompt: number, completion: number }}
+ */
+function getTokenUsage() {
+  return { ..._runTokens };
+}
+
 /**
  * Calls OpenRouter API with retry on 429 and 5xx errors.
  * @param {object} payload - The request body
@@ -27,6 +45,11 @@ async function callOpenRouter(payload, timeout = 30000) {
       headers: _headers(),
       timeout,
     });
+    // Track token usage
+    if (response.data && response.data.usage) {
+      _runTokens.prompt += response.data.usage.prompt_tokens || 0;
+      _runTokens.completion += response.data.usage.completion_tokens || 0;
+    }
     return response.data;
   }, {
     retries: 3,
@@ -257,4 +280,4 @@ Respond with this exact JSON structure:
 }`;
 }
 
-module.exports = { scoreBrandFit, BRANDS };
+module.exports = { scoreBrandFit, BRANDS, resetTokenCounter, getTokenUsage };

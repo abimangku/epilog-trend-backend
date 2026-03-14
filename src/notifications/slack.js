@@ -231,10 +231,40 @@ async function alertSelectorHealth(details) {
   return sent;
 }
 
+// ---------------------------------------------------------------------------
+// alertDailyCost
+// ---------------------------------------------------------------------------
+
+/** Last cost alert date string (max one alert per calendar day) */
+let lastCostAlertDate = null;
+
+/**
+ * Sends Slack alert if daily AI spend exceeds threshold.
+ * Max one alert per calendar day.
+ *
+ * @param {number} totalCost - Total cost today in USD
+ * @param {number} threshold - Alert threshold in USD
+ * @returns {Promise<boolean>}
+ */
+async function alertDailyCost(totalCost, threshold) {
+  const today = new Date().toISOString().slice(0, 10);
+  if (lastCostAlertDate === today) return false;
+
+  const sent = await sendRaw(
+    ':money_with_wings: *Daily AI Cost Alert*\n' +
+    `Today's spend: *$${totalCost.toFixed(4)}* (threshold: $${threshold.toFixed(2)})\n` +
+    'Check OpenRouter dashboard for details.'
+  );
+
+  if (sent) lastCostAlertDate = today;
+  return sent;
+}
+
 module.exports = {
   notifyActNow,
   notifyScraperDown,
   notifyDailySummary,
   sendRaw,
   alertSelectorHealth,
+  alertDailyCost,
 };

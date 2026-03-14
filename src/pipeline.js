@@ -56,8 +56,8 @@ const {
   upsertAudioTrends,
   getLatestSnapshot,
 } = require('./database/supabase');
-const { trashGate, deepAnalysis, crossTrendSynthesis } = require('./ai/analyzer');
-const { scoreBrandFit } = require('./ai/brand-fit');
+const { trashGate, deepAnalysis, crossTrendSynthesis, resetTokenCounter: resetAnalyzerTokens, getTokenUsage: getAnalyzerTokens } = require('./ai/analyzer');
+const { scoreBrandFit, resetTokenCounter: resetBrandFitTokens, getTokenUsage: getBrandFitTokens } = require('./ai/brand-fit');
 
 const MOD = 'PIPELINE';
 
@@ -130,6 +130,10 @@ async function runPipeline() {
     brand_fits: 0,
     errors: 0,
   };
+
+  // Reset AI token counters for this run
+  resetAnalyzerTokens();
+  resetBrandFitTokens();
 
   const runId = await createPipelineRun();
   logger.setRunId(runId);
@@ -452,6 +456,16 @@ async function runPipeline() {
       errors: stats.errors,
     });
 
+    // Calculate token usage and cost
+    const analyzerTokens = getAnalyzerTokens();
+    const brandFitTokens = getBrandFitTokens();
+    const totalPromptTokens = analyzerTokens.prompt + brandFitTokens.prompt;
+    const totalCompletionTokens = analyzerTokens.completion + brandFitTokens.completion;
+    const tokensUsed = totalPromptTokens + totalCompletionTokens;
+    const estimatedCostUsd = (totalPromptTokens * 0.10 + totalCompletionTokens * 0.40) / 1_000_000;
+
+    logger.log(MOD, `Token usage: ${tokensUsed} total (${totalPromptTokens} prompt, ${totalCompletionTokens} completion), cost: $${estimatedCostUsd.toFixed(4)}`);
+
     const runStatus = stats.errors > 0 ? 'partial' : 'success';
     await updatePipelineRun(runId, {
       status: runStatus,
@@ -460,7 +474,26 @@ async function runPipeline() {
       videos_analyzed: stats.analyzed,
       videos_failed: stats.errors,
       errors: runErrors,
+      tokens_used: tokensUsed,
+      estimated_cost_usd: estimatedCostUsd,
     });
+
+    // Check daily cost threshold
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const { data: todayRuns } = await supabase
+        .from('pipeline_runs')
+        .select('estimated_cost_usd')
+        .gte('started_at', today + 'T00:00:00.000Z');
+      const dailyTotal = (todayRuns || []).reduce((sum, r) => sum + (parseFloat(r.estimated_cost_usd) || 0), 0);
+      const threshold = parseFloat(process.env.DAILY_COST_ALERT_USD) || 5.0;
+      if (dailyTotal > threshold) {
+        const { alertDailyCost } = require('./notifications/slack');
+        await alertDailyCost(dailyTotal, threshold);
+      }
+    } catch (costErr) {
+      logger.warn(MOD, `Cost alert check failed: ${costErr.message}`);
+    }
 
     await createPipelineEvent(runId, 'complete', 'info',
       `Pipeline ${runStatus}: ${stats.scraped} scraped, ${stats.analyzed} analyzed, ${stats.errors} errors`);
