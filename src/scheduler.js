@@ -11,21 +11,6 @@ const cron = require('node-cron');
 const logger = require('./logger');
 const { runPipelineOnce } = require('./pipeline');
 
-// Slack module may not be implemented yet — import defensively
-let notifyScraperDown = null;
-let notifyDailySummary = null;
-try {
-  const slack = require('./notifications/slack');
-  if (typeof slack.notifyScraperDown === 'function') {
-    notifyScraperDown = slack.notifyScraperDown;
-  }
-  if (typeof slack.notifyDailySummary === 'function') {
-    notifyDailySummary = slack.notifyDailySummary;
-  }
-} catch {
-  // slack.js not yet implemented
-}
-
 const MOD = 'SCHEDULER';
 
 // ---------------------------------------------------------------------------
@@ -162,20 +147,10 @@ async function onTick() {
     consecutiveFailures++;
     logger.error(MOD, `Scrape failed (${consecutiveFailures} consecutive failures)`, err);
 
-    // After 3 consecutive failures, alert via Slack
+    // After 3 consecutive failures, log critical alert
+    // (pipeline_events table captures per-run failures)
     if (consecutiveFailures >= 3) {
-      logger.error(MOD, 'ALERT: 3 consecutive scrape failures — notifying Slack');
-      try {
-        if (notifyScraperDown) {
-          await notifyScraperDown({
-            consecutiveFailures,
-            lastError: err.message,
-            timestamp: new Date().toISOString(),
-          });
-        }
-      } catch (slackErr) {
-        logger.warn(MOD, 'Failed to send scraper-down notification', slackErr);
-      }
+      logger.error(MOD, `ALERT: ${consecutiveFailures} consecutive scrape failures`);
     }
   } finally {
     lastScrapeTime = new Date();
@@ -220,18 +195,7 @@ async function onDailyBrief() {
     timestamp: new Date().toISOString(),
   };
 
-  logger.log(MOD, 'Sending daily brief', summary);
-
-  try {
-    if (notifyDailySummary) {
-      await notifyDailySummary(summary);
-      logger.log(MOD, 'Daily brief sent to Slack');
-    } else {
-      logger.warn(MOD, 'Slack not configured — daily brief skipped');
-    }
-  } catch (err) {
-    logger.warn(MOD, 'Failed to send daily brief', err);
-  }
+  logger.log(MOD, 'Daily brief', summary);
 }
 
 // ---------------------------------------------------------------------------
