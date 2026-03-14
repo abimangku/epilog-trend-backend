@@ -3,7 +3,9 @@ import { useTrends } from '../hooks/use-trends';
 import { useCrossTrendSynthesis } from '../hooks/use-analysis';
 import { useAudioPatterns, useFormatPatterns } from '../hooks/use-patterns';
 import { useRealtimeTrends } from '../hooks/use-realtime';
+import { useLatestRun } from '../hooks/use-pipeline-status';
 import { OpportunityCard } from '../components/cards/OpportunityCard';
+import { Onboarding } from '../components/shared/Onboarding';
 import { Skeleton } from '../components/shared/Skeleton';
 import { supabase } from '../lib/supabase';
 import type { ClientBrandFit } from '../types';
@@ -11,6 +13,7 @@ import type { ClientBrandFit } from '../types';
 export function Pulse() {
   useRealtimeTrends();
 
+  const { data: latestRun, isLoading: runLoading } = useLatestRun();
   const { data: trends, isLoading: trendsLoading, error: trendsError, refetch: refetchTrends } = useTrends({ days: 7, limit: 50 });
   const { data: synthesis, isLoading: synthLoading } = useCrossTrendSynthesis();
   const { data: audioPatterns } = useAudioPatterns(6);
@@ -69,14 +72,18 @@ export function Pulse() {
           </button>
         </div>
       ) : !trendsLoading && (!trends || trends.length === 0) ? (
-        <div className="text-center py-20">
-          <p className="text-[14px] mb-1" style={{ color: 'var(--text-secondary)' }}>
-            No trends yet — waiting for first scan
-          </p>
-          <p className="text-[12px]" style={{ color: 'var(--text-muted)' }}>
-            The pipeline will populate this page after the first scrape
-          </p>
-        </div>
+        !runLoading && !latestRun ? (
+          <Onboarding />
+        ) : (
+          <div className="text-center py-20">
+            <p className="text-[14px] mb-1" style={{ color: 'var(--text-secondary)' }}>
+              No trends yet — waiting for first scan
+            </p>
+            <p className="text-[12px]" style={{ color: 'var(--text-muted)' }}>
+              The pipeline will populate this page after the first scrape
+            </p>
+          </div>
+        )
       ) : (
         <>
       {/* Section 1: Cultural Snapshot */}
