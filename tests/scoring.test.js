@@ -2,6 +2,8 @@ const {
   calculateEngagementRate,
   calculateVelocityScore,
   calculateMomentum,
+  calculateWeightedEngagementRate,
+  calculateShareRatio,
 } = require('../src/scoring/engagement');
 
 const {
@@ -534,5 +536,47 @@ describe('calculateMomentum — FYP volume momentum (views=0)', () => {
       snap(1, 0, 300000, 3000, 15000),
     ];
     expect(calculateMomentum(snapshots)).toBe('stable');
+  });
+});
+
+// --- Weighted Engagement Rate tests ---
+describe('calculateWeightedEngagementRate', () => {
+  it('weights shares 3x, saves 2x, comments 1.5x, likes 1x', () => {
+    const rate = calculateWeightedEngagementRate(100, 50, 30, 20, 10000);
+    expect(rate).toBeCloseTo(3.05, 1);
+  });
+
+  it('returns 0 when views is 0 and all metrics are 0', () => {
+    expect(calculateWeightedEngagementRate(0, 0, 0, 0, 0)).toBe(0);
+  });
+
+  it('uses volume-based scoring when views is 0', () => {
+    const rate = calculateWeightedEngagementRate(1000, 100, 50, 20, 0);
+    expect(rate).toBeGreaterThan(0);
+    expect(rate).toBeLessThanOrEqual(100);
+  });
+
+  it('handles missing bookmarks gracefully', () => {
+    const rate = calculateWeightedEngagementRate(100, 50, 30, undefined, 10000);
+    expect(rate).toBeCloseTo(2.65, 1);
+  });
+});
+
+// --- Share Ratio tests ---
+describe('calculateShareRatio', () => {
+  it('calculates shares / views as percentage', () => {
+    expect(calculateShareRatio(500, 100000)).toBeCloseTo(0.5, 1);
+  });
+
+  it('returns 0 when views is 0', () => {
+    expect(calculateShareRatio(500, 0)).toBe(0);
+  });
+
+  it('returns 0 when shares is 0', () => {
+    expect(calculateShareRatio(0, 100000)).toBe(0);
+  });
+
+  it('caps at 100', () => {
+    expect(calculateShareRatio(200000, 100000)).toBe(100);
   });
 });

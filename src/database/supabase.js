@@ -102,10 +102,12 @@ async function upsertTrend(trendData) {
     likes: trendData.likes,
     comments: trendData.comments,
     shares: trendData.shares,
+    bookmarks: trendData.bookmarks || 0,
     hashtags: trendData.hashtags,
     audio_id: trendData.audio_id,
     audio_title: trendData.audio_title,
     engagement_rate: trendData.engagement_rate,
+    share_ratio: trendData.share_ratio || null,
     velocity_score: trendData.velocity_score,
     replication_count: trendData.replication_count,
     lifecycle_stage: trendData.lifecycle_stage,
@@ -163,6 +165,7 @@ async function createEngagementSnapshot(trendId, metrics) {
     likes: metrics.likes,
     comments: metrics.comments,
     shares: metrics.shares,
+    bookmarks: metrics.bookmarks || 0,
     captured_at: new Date().toISOString(),
   };
 

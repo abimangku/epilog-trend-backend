@@ -163,8 +163,47 @@ function calculateMomentum(snapshots) {
   return 'stable';
 }
 
+/**
+ * Calculates weighted engagement rate where different actions have different weights.
+ * Shares (3x) > Saves (2x) > Comments (1.5x) > Likes (1x).
+ * This better reflects TikTok's own algorithm weighting.
+ *
+ * @param {number} likes
+ * @param {number} comments
+ * @param {number} shares
+ * @param {number} bookmarks - Saves/bookmarks count
+ * @param {number} views
+ * @returns {number} Weighted engagement rate as percentage (0-100+)
+ */
+function calculateWeightedEngagementRate(likes, comments, shares, bookmarks, views) {
+  const safeBookmarks = bookmarks || 0;
+  if (views && views > 0) {
+    const weighted = likes + comments * 1.5 + shares * 3 + safeBookmarks * 2;
+    return (weighted / views) * 100;
+  }
+  // FYP-native: volume-based score
+  const volume = likes + comments * 2 + shares * 3 + safeBookmarks * 2;
+  if (volume <= 0) return 0;
+  return (Math.log10(volume + 1) / Math.log10(MAX_VOLUME + 1)) * 100;
+}
+
+/**
+ * Calculates share ratio — shares as a percentage of views.
+ * This is the single strongest externally measurable virality predictor.
+ *
+ * @param {number} shares
+ * @param {number} views
+ * @returns {number} Share ratio as percentage (0-100), capped at 100
+ */
+function calculateShareRatio(shares, views) {
+  if (!views || views <= 0 || !shares) return 0;
+  return Math.min((shares / views) * 100, 100);
+}
+
 module.exports = {
   calculateEngagementRate,
   calculateVelocityScore,
   calculateMomentum,
+  calculateWeightedEngagementRate,
+  calculateShareRatio,
 };

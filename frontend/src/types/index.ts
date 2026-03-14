@@ -16,11 +16,13 @@ export interface Trend {
   likes: number;
   comments: number;
   shares: number;
+  bookmarks: number;
   hashtags: string[];
   audio_id: string | null;
   audio_title: string | null;
   engagement_rate: number;
   velocity_score: number;
+  share_ratio: number | null;
   replication_count: number;
   lifecycle_stage: LifecycleStage;
   momentum: number;
@@ -86,6 +88,7 @@ export interface EngagementSnapshot {
   likes: number;
   comments: number;
   shares: number;
+  bookmarks: number;
   captured_at: string;
 }
 

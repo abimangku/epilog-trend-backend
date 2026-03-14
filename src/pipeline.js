@@ -24,6 +24,7 @@ const {
   calculateEngagementRate,
   calculateVelocityScore,
   calculateMomentum,
+  calculateShareRatio,
 } = require('./scoring/engagement');
 const {
   calculateReplicationScore,
@@ -182,6 +183,9 @@ async function runPipeline() {
           video.likes, video.comments, video.shares, video.views
         );
 
+        // --- Share ratio ---
+        const shareRatio = calculateShareRatio(video.shares, video.views);
+
         // --- Lookup existing trend for historical snapshots ---
         const hash = generateTrendHash(video.platform, video.url, video.title);
         const existing = await findExistingTrend(hash);
@@ -246,6 +250,7 @@ async function runPipeline() {
           audio_id: video.audio_id,
           audio_title: video.audio_title,
           engagement_rate: Math.round(engagementRate * 100) / 100,
+          share_ratio: Math.round(shareRatio * 100) / 100,
           velocity_score: Math.round(velocityScore * 100) / 100,
           replication_count: replicationCount,
           lifecycle_stage: lifecycleStage,
@@ -272,6 +277,7 @@ async function runPipeline() {
           likes: video.likes,
           comments: video.comments,
           shares: video.shares,
+          bookmarks: video.bookmarks || 0,
         });
 
         // --- Proxy thumbnail to Supabase Storage ---
