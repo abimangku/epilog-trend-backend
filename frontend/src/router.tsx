@@ -1,5 +1,6 @@
 import { createBrowserRouter } from 'react-router-dom';
 import { AppShell } from './components/layout/AppShell';
+import { ErrorBoundary } from './components/shared/ErrorBoundary';
 import { PinEntry } from './pages/PinEntry';
 import { Pulse } from './pages/Pulse';
 import { Explore } from './pages/Explore';
@@ -18,13 +19,13 @@ export const router = createBrowserRouter([
     path: '/',
     element: <AppShell />,
     children: [
-      { index: true, element: <Pulse /> },
-      { path: 'explore', element: <Explore /> },
-      { path: 'for-you', element: <ForYou /> },
-      { path: 'brand/:name', element: <Brand /> },
-      { path: 'saved', element: <Saved /> },
-      { path: 'patterns', element: <Patterns /> },
-      { path: 'settings', element: <Settings /> },
+      { index: true, element: <ErrorBoundary><Pulse /></ErrorBoundary> },
+      { path: 'explore', element: <ErrorBoundary><Explore /></ErrorBoundary> },
+      { path: 'for-you', element: <ErrorBoundary><ForYou /></ErrorBoundary> },
+      { path: 'brand/:name', element: <ErrorBoundary><Brand /></ErrorBoundary> },
+      { path: 'saved', element: <ErrorBoundary><Saved /></ErrorBoundary> },
+      { path: 'patterns', element: <ErrorBoundary><Patterns /></ErrorBoundary> },
+      { path: 'settings', element: <ErrorBoundary><Settings /></ErrorBoundary> },
     ],
   },
 ]);
