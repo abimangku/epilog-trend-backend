@@ -200,10 +200,35 @@ function calculateShareRatio(shares, views) {
   return Math.min((shares / views) * 100, 100);
 }
 
+/**
+ * Half-life for recency decay in hours. Exported for testability.
+ * At 12h, a trend retains 50% of its recency score.
+ */
+const RECENCY_HALF_LIFE_HOURS = 12;
+
+/**
+ * Calculates exponential decay multiplier based on trend age.
+ * Used as final multiplier on composite trend score.
+ *
+ * @param {string|null} scrapedAt - ISO timestamp of when trend was scraped
+ * @param {Date} [now=new Date()] - Current time (injectable for testing)
+ * @returns {number} Multiplier 0.0-1.0 (1.0 = brand new, 0.5 = half-life age)
+ */
+function calculateRecencyMultiplier(scrapedAt, now) {
+  if (!scrapedAt) return 1.0;
+  const scrapedTime = new Date(scrapedAt).getTime();
+  if (isNaN(scrapedTime)) return 1.0;
+  const currentTime = (now || new Date()).getTime();
+  const ageHours = Math.max(0, (currentTime - scrapedTime) / (1000 * 60 * 60));
+  return Math.pow(0.5, ageHours / RECENCY_HALF_LIFE_HOURS);
+}
+
 module.exports = {
   calculateEngagementRate,
   calculateVelocityScore,
   calculateMomentum,
   calculateWeightedEngagementRate,
   calculateShareRatio,
+  calculateRecencyMultiplier,
+  RECENCY_HALF_LIFE_HOURS,
 };

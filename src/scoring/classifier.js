@@ -3,7 +3,7 @@
  * No side effects, no I/O, no external dependencies.
  */
 
-const { calculateEngagementRate, calculateMomentum } = require('./engagement');
+const { calculateEngagementRate, calculateMomentum, calculateRecencyMultiplier } = require('./engagement');
 
 /**
  * Classifies a trend based on its composite score.
@@ -127,19 +127,22 @@ function assignUrgencyLevel(lifecycleStage, hoursOld) {
  * @param {number} patternScore
  * @returns {number} Composite score 0-100, rounded to 2 decimal places.
  */
-function compositeScore(engagementRate, velocityScore, replicationCount, patternScore) {
+function compositeScore(engagementRate, velocityScore, replicationCount, patternScore, scrapedAt) {
   // Normalize replication: 0-20 creators mapped to 0-100 score
   const replicationNorm = Math.min((replicationCount / 20) * 100, 100);
 
   // Normalize engagement quality: 10% engagement rate = 100 score
   const engagementQuality = Math.min((engagementRate / 10) * 100, 100);
 
-  const score =
+  let score =
     replicationNorm * 0.35 +
     velocityScore * 0.25 +
     engagementQuality * 0.20 +
     patternScore * 0.15 +
     engagementQuality * 0.05;
+
+  const recency = calculateRecencyMultiplier(scrapedAt);
+  score = score * recency;
 
   return Math.round(Math.min(score, 100) * 100) / 100;
 }

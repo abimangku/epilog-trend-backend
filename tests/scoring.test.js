@@ -580,3 +580,67 @@ describe('calculateShareRatio', () => {
     expect(calculateShareRatio(200000, 100000)).toBe(100);
   });
 });
+
+// ===========================================================================
+// Recency Decay
+// ===========================================================================
+
+describe('calculateRecencyMultiplier', () => {
+  const { calculateRecencyMultiplier, RECENCY_HALF_LIFE_HOURS } = require('../src/scoring/engagement');
+
+  test('returns 1.0 for brand new trend (0 hours old)', () => {
+    const now = new Date();
+    expect(calculateRecencyMultiplier(now.toISOString(), now)).toBeCloseTo(1.0, 2);
+  });
+
+  test('returns ~0.5 at half-life (12 hours)', () => {
+    const now = new Date();
+    const twelveHoursAgo = new Date(now.getTime() - 12 * 60 * 60 * 1000);
+    expect(calculateRecencyMultiplier(twelveHoursAgo.toISOString(), now)).toBeCloseTo(0.5, 1);
+  });
+
+  test('returns ~0.25 at 24 hours', () => {
+    const now = new Date();
+    const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    expect(calculateRecencyMultiplier(dayAgo.toISOString(), now)).toBeCloseTo(0.25, 1);
+  });
+
+  test('returns near 0 at 72 hours', () => {
+    const now = new Date();
+    const threeDaysAgo = new Date(now.getTime() - 72 * 60 * 60 * 1000);
+    const result = calculateRecencyMultiplier(threeDaysAgo.toISOString(), now);
+    expect(result).toBeLessThan(0.02);
+    expect(result).toBeGreaterThan(0);
+  });
+
+  test('returns 1.0 for null scraped_at', () => {
+    expect(calculateRecencyMultiplier(null, new Date())).toBe(1.0);
+  });
+
+  test('returns 1.0 for undefined scraped_at', () => {
+    expect(calculateRecencyMultiplier(undefined, new Date())).toBe(1.0);
+  });
+
+  test('half-life constant is 12', () => {
+    expect(RECENCY_HALF_LIFE_HOURS).toBe(12);
+  });
+});
+
+describe('compositeScore with recency decay', () => {
+  const { compositeScore } = require('../src/scoring/classifier');
+
+  test('applies recency decay when scrapedAt provided', () => {
+    const now = new Date();
+    const freshScore = compositeScore(50, 50, 10, 50, now.toISOString());
+    const twelveHourScore = compositeScore(50, 50, 10, 50,
+      new Date(now.getTime() - 12 * 60 * 60 * 1000).toISOString());
+    // 12h old should be roughly half of fresh
+    expect(twelveHourScore).toBeCloseTo(freshScore * 0.5, 0);
+  });
+
+  test('compositeScore without scrapedAt returns undecayed score', () => {
+    const withoutTime = compositeScore(50, 50, 10, 50);
+    const withNullTime = compositeScore(50, 50, 10, 50, null);
+    expect(withoutTime).toBe(withNullTime);
+  });
+});

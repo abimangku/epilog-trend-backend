@@ -233,7 +233,8 @@ async function runPipeline() {
 
         // --- Composite score ---
         const composite = compositeScore(
-          engagementRate, velocityScore, replicationCount, patternScore
+          engagementRate, velocityScore, replicationCount, patternScore,
+          video.scraped_at || new Date().toISOString()
         );
 
         // --- Lifecycle stage ---
