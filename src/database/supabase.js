@@ -1,8 +1,31 @@
 const { createClient } = require('@supabase/supabase-js');
 const crypto = require('crypto');
 const logger = require('../logger');
+const { withRetry } = require('../utils/retry');
 
 const MOD = 'DB';
+
+/**
+ * Wraps a Supabase operation with retry logic. Logs each retry attempt.
+ * On final failure, logs the operation context for manual recovery.
+ * @param {string} operation - Description for logging (e.g. 'upsert trend')
+ * @param {() => Promise<*>} fn - The Supabase call to retry
+ * @returns {Promise<*>}
+ */
+async function retrySupabase(operation, fn) {
+  try {
+    return await withRetry(fn, {
+      retries: 3,
+      baseDelay: 1000,
+      onRetry: (err, attempt) => {
+        logger.warn(MOD, `Retry ${attempt}/3 for ${operation}: ${err.message}`);
+      },
+    });
+  } catch (err) {
+    logger.error(MOD, `All retries exhausted for ${operation} — data may be lost`, err);
+    throw err;
+  }
+}
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_ANON_KEY;
@@ -96,19 +119,17 @@ async function upsertTrend(trendData) {
   };
 
   // Check if this hash already exists so we can report inserted vs updated
-  const { data: existing } = await supabase
-    .from('trends')
-    .select('id')
-    .eq('hash', hash)
-    .maybeSingle();
+  const { data: existing } = await retrySupabase(
+    `check trend ${hash.slice(0, 8)}`,
+    () => supabase.from('trends').select('id').eq('hash', hash).maybeSingle()
+  );
 
   const isInsert = !existing;
 
-  const { data, error: upsertError } = await supabase
-    .from('trends')
-    .upsert(row, { onConflict: 'hash' })
-    .select('id')
-    .single();
+  const { data, error: upsertError } = await retrySupabase(
+    `upsert trend ${trendData.title.slice(0, 30)}`,
+    () => supabase.from('trends').upsert(row, { onConflict: 'hash' }).select('id').single()
+  );
 
   if (upsertError) {
     logger.error(MOD, `Failed to upsert trend: ${trendData.title}`, upsertError);
@@ -145,11 +166,10 @@ async function createEngagementSnapshot(trendId, metrics) {
     captured_at: new Date().toISOString(),
   };
 
-  const { data, error: insertError } = await supabase
-    .from('engagement_snapshots')
-    .insert(row)
-    .select()
-    .single();
+  const { data, error: insertError } = await retrySupabase(
+    `snapshot for ${trendId.slice(0, 8)}`,
+    () => supabase.from('engagement_snapshots').insert(row).select().single()
+  );
 
   if (insertError) {
     logger.error(MOD, `Failed to create snapshot for trend ${trendId}`, insertError);
@@ -274,32 +294,26 @@ async function upsertTrendAnalysis(trendId, analysis) {
   };
 
   // Check if a deep analysis already exists for this trend
-  const { data: existing } = await supabase
-    .from('trend_analysis')
-    .select('id')
-    .eq('trend_id', trendId)
-    .maybeSingle();
+  const { data: existing } = await retrySupabase(
+    `check analysis ${trendId.slice(0, 8)}`,
+    () => supabase.from('trend_analysis').select('id').eq('trend_id', trendId).maybeSingle()
+  );
 
   let data;
   let error;
 
   if (existing) {
-    // Update existing row
-    const result = await supabase
-      .from('trend_analysis')
-      .update(fields)
-      .eq('id', existing.id)
-      .select()
-      .single();
+    const result = await retrySupabase(
+      `update analysis ${existing.id.slice(0, 8)}`,
+      () => supabase.from('trend_analysis').update(fields).eq('id', existing.id).select().single()
+    );
     data = result.data;
     error = result.error;
   } else {
-    // Insert new row
-    const result = await supabase
-      .from('trend_analysis')
-      .insert({ trend_id: trendId, ...fields })
-      .select()
-      .single();
+    const result = await retrySupabase(
+      `insert analysis ${trendId.slice(0, 8)}`,
+      () => supabase.from('trend_analysis').insert({ trend_id: trendId, ...fields }).select().single()
+    );
     data = result.data;
     error = result.error;
   }
@@ -341,11 +355,10 @@ async function insertCrossTrendSynthesis(synthesis) {
     analyzed_at: new Date().toISOString(),
   };
 
-  const { data, error: insertError } = await supabase
-    .from('trend_analysis')
-    .insert(row)
-    .select()
-    .single();
+  const { data, error: insertError } = await retrySupabase(
+    'insert cross-trend synthesis',
+    () => supabase.from('trend_analysis').insert(row).select().single()
+  );
 
   if (insertError) {
     logger.error(MOD, 'Failed to insert cross-trend synthesis', insertError);
@@ -367,10 +380,10 @@ async function insertCrossTrendSynthesis(synthesis) {
 async function upsertBrandFits(brandFits) {
   if (!brandFits || brandFits.length === 0) return [];
 
-  const { data, error: upsertError } = await supabase
-    .from('client_brand_fit')
-    .upsert(brandFits, { onConflict: 'trend_id,brand_name' })
-    .select();
+  const { data, error: upsertError } = await retrySupabase(
+    `upsert ${brandFits.length} brand fits`,
+    () => supabase.from('client_brand_fit').upsert(brandFits, { onConflict: 'trend_id,brand_name' }).select()
+  );
 
   if (upsertError) {
     logger.error(MOD, `Failed to upsert brand fits`, upsertError);
