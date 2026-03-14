@@ -3,6 +3,7 @@ import { Outlet, useNavigate } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { verifySession } from '../../lib/api';
 import { useAuthStore } from '../../stores/auth';
+import { ToastContainer } from '../shared/Toast';
 
 export function AppShell() {
   const navigate = useNavigate();
@@ -32,6 +33,7 @@ export function AppShell() {
       <main className="flex-1 overflow-auto">
         <Outlet />
       </main>
+      <ToastContainer />
     </div>
   );
 }
