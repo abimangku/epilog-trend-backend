@@ -5,6 +5,7 @@ const path = require('path');
 const logger = require('./logger');
 const { testConnection, supabase } = require('./database/supabase');
 const { runPipelineOnce } = require('./pipeline');
+const { validateEnv } = require('./config/validate-env');
 const authRouter = require('./api/auth');
 const { requireAuth: requireJwtAuth } = require('./api/middleware');
 const savedRouter = require('./api/saved');
@@ -13,6 +14,20 @@ const patternsRouter = require('./api/patterns');
 const forYouRouter = require('./api/for-you');
 
 const MOD = 'SERVER';
+
+// ---------------------------------------------------------------------------
+// Catch uncaught exceptions and unhandled rejections
+// ---------------------------------------------------------------------------
+
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error(MOD, 'Unhandled promise rejection', reason instanceof Error ? reason : new Error(String(reason)));
+});
+
+process.on('uncaughtException', (err) => {
+  logger.error(MOD, 'Uncaught exception — PM2 will restart the process', err);
+  // Let the error propagate — PM2 handles restart. Do not call process.exit()
+  // per project convention (CLAUDE.md bans process.exit).
+});
 
 // ---------------------------------------------------------------------------
 // Pipeline run state — shared across endpoints
@@ -226,6 +241,13 @@ app.get('{*path}', (req, res, next) => {
 const PORT = process.env.PORT || 3001;
 
 async function start() {
+  // Validate required environment variables — throw to prevent startup
+  // (thrown error propagates naturally; PM2 handles restart per CLAUDE.md convention)
+  validateEnv(process.env, {
+    onWarn: (msg) => logger.warn(MOD, msg),
+  });
+  logger.log(MOD, 'Environment variables validated');
+
   // Test Supabase connectivity — log but don't crash
   const dbOk = await testConnection();
   if (dbOk) {

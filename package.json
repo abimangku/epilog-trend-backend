@@ -8,7 +8,10 @@
     "dev": "nodemon src/server.js",
     "scrape": "node -e \"require('./src/scrapers/tiktok.js').scrapeOnce()\"",
     "test": "jest",
-    "tunnel": "cloudflared tunnel run trend-watcher"
+    "tunnel": "cloudflared tunnel run trend-watcher",
+    "start:prod": "pm2 start ecosystem.config.js --env production",
+    "stop:prod": "pm2 stop trend-watcher",
+    "logs:prod": "pm2 logs trend-watcher"
   },
   "keywords": [
     "tiktok",
