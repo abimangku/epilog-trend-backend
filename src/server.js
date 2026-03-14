@@ -4,6 +4,8 @@ const express = require('express');
 const logger = require('./logger');
 const { testConnection, supabase } = require('./database/supabase');
 const { runPipelineOnce } = require('./pipeline');
+const authRouter = require('./api/auth');
+const { requireAuth: requireJwtAuth } = require('./api/middleware');
 
 const MOD = 'SERVER';
 
@@ -89,6 +91,14 @@ app.use((req, res, next) => {
   });
   next();
 });
+
+// ---------------------------------------------------------------------------
+// JWT Auth routes (frontend PIN auth)
+// ---------------------------------------------------------------------------
+app.use('/api/auth', authRouter);
+
+// All other /api/* routes require JWT
+app.use('/api', requireJwtAuth);
 
 // ---------------------------------------------------------------------------
 // GET /health
