@@ -16,6 +16,9 @@ const CULTURAL_KEYWORDS = {
   independence_day: ['17 agustus', 'kemerdekaan', 'dirgahayu', 'merah putih', 'hut ri'],
   school_season: ['back to school', 'masuk sekolah', 'ospek', 'orientasi', 'ppdb', 'ajaran baru'],
   year_end: ['akhir tahun', 'tahun baru', 'new year', 'resolusi', 'liburan akhir tahun'],
+  rainy_season: ['musim hujan', 'hujan', 'banjir', 'apek', 'lembab'],
+  harbolnas: ['harbolnas', '11.11', '12.12', '10.10', '9.9', 'flash sale', 'mega sale', 'keranjang kuning'],
+  payday: ['gajian', 'tanggal tua', 'tanggal muda', 'belanja bulanan'],
   indonesian_slang: [
     'stecu', 'gabut', 'bucin', 'cuan', 'sultan', 'mager', 'baper', 'julid',
     'ngakak', 'receh', 'spill', 'healing', 'literally me', 'aku banget',

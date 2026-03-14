@@ -580,33 +580,51 @@ async function upsertAudioTrends(videos) {
 
   for (const [audioId, data] of audioMap) {
     try {
-      const { data: existing } = await supabase
-        .from('audio_trends')
-        .select('id, usage_count, unique_authors')
-        .eq('audio_id', audioId)
-        .order('scraped_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const { data: existing } = await retrySupabase(
+        `check audio ${audioId.slice(0, 16)}`,
+        () => supabase
+          .from('audio_trends')
+          .select('id, usage_count, unique_authors')
+          .eq('audio_id', audioId)
+          .order('scraped_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+      );
 
       if (existing) {
-        await supabase.from('audio_trends').insert({
-          audio_id: audioId,
-          audio_title: data.title,
-          usage_count: data.authors.size,
-          unique_authors: data.authors.size,
-          last_seen_at: now,
-          scraped_at: now,
-        });
+        const { error } = await retrySupabase(
+          `update audio ${audioId.slice(0, 16)}`,
+          () => supabase.from('audio_trends')
+            .update({
+              audio_title: data.title,
+              usage_count: (existing.usage_count || 0) + data.authors.size,
+              unique_authors: (existing.unique_authors || 0) + data.authors.size,
+              last_seen_at: now,
+              scraped_at: now,
+            })
+            .eq('id', existing.id)
+        );
+        if (error) {
+          logger.warn(MOD, `Failed to update audio trend ${audioId}: ${error.message}`);
+          continue;
+        }
       } else {
-        await supabase.from('audio_trends').insert({
-          audio_id: audioId,
-          audio_title: data.title,
-          usage_count: data.authors.size,
-          unique_authors: data.authors.size,
-          first_seen_at: now,
-          last_seen_at: now,
-          scraped_at: now,
-        });
+        const { error } = await retrySupabase(
+          `insert audio ${audioId.slice(0, 16)}`,
+          () => supabase.from('audio_trends').insert({
+            audio_id: audioId,
+            audio_title: data.title,
+            usage_count: data.authors.size,
+            unique_authors: data.authors.size,
+            first_seen_at: now,
+            last_seen_at: now,
+            scraped_at: now,
+          })
+        );
+        if (error) {
+          logger.warn(MOD, `Failed to insert audio trend ${audioId}: ${error.message}`);
+          continue;
+        }
       }
       upserted++;
     } catch (err) {

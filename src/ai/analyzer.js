@@ -94,7 +94,7 @@ async function trashGate(videos) {
   if (videos.length === 0) return [];
 
   const videoList = videos.map((v, i) => {
-    const shareRatio = v.views > 0 ? ((v.shares / v.views) * 100).toFixed(2) : 'N/A';
+    const shareRatio = v.views > 0 ? (((v.shares || 0) / v.views) * 100).toFixed(2) : 'N/A';
     return `[${i}] @${v.author} — "${(v.title || '').slice(0, 100)}" | Views: ${(v.views || 0).toLocaleString()} Likes: ${v.likes} Comments: ${v.comments} Shares: ${v.shares} Bookmarks: ${v.bookmarks || 0} | Engagement Rate: ${v.engagement_rate || 'N/A'}% | Share Ratio: ${shareRatio}% | Hashtags: ${(v.hashtags || []).join(', ')} | Audio: ${v.audio_title || 'unknown'}`;
   }).join('\n');
 

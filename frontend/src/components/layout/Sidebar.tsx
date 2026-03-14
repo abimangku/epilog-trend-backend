@@ -93,7 +93,7 @@ function SystemLink() {
           style={{ background: dotColor }}
         />
         System
-        {criticalCount > 0 && (
+        {(criticalCount ?? 0) > 0 && (
           <span
             className="ml-auto inline-flex items-center justify-center rounded-full text-[10px] font-medium leading-none px-1.5 py-0.5"
             style={{ background: '#ef4444', color: '#ffffff' }}
