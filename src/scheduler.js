@@ -12,6 +12,7 @@ const logger = require('./logger');
 const { runPipelineOnce } = require('./pipeline');
 const { checkSelectors } = require('./scrapers/health-check');
 const { createPipelineEvent } = require('./database/supabase');
+const { cleanupOldThumbnails } = require('./media/thumbnail-proxy');
 
 const MOD = 'SCHEDULER';
 
@@ -46,6 +47,7 @@ let mainCron = null;
 let resetCron = null;
 let briefCron = null;
 let healthCron = null;
+let cleanupCron = null;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -240,7 +242,14 @@ function start() {
     });
   });
 
-  logger.log(MOD, 'Cron jobs registered: main (every min), daily-reset (00:00), daily-brief (08:00), health-check (every 6h)');
+  // Nightly thumbnail cleanup: 03:00 WIB
+  cleanupCron = cron.schedule('0 3 * * *', () => {
+    cleanupOldThumbnails(30).catch((err) => {
+      logger.error(MOD, 'Thumbnail cleanup cron failed', err);
+    });
+  });
+
+  logger.log(MOD, 'Cron jobs registered: main (every min), daily-reset (00:00), daily-brief (08:00), health-check (every 6h), thumbnail-cleanup (03:00)');
 }
 
 /**
@@ -252,6 +261,7 @@ function stop() {
   if (resetCron) { resetCron.stop(); resetCron = null; }
   if (briefCron) { briefCron.stop(); briefCron = null; }
   if (healthCron) { healthCron.stop(); healthCron = null; }
+  if (cleanupCron) { cleanupCron.stop(); cleanupCron = null; }
   logger.log(MOD, 'All cron jobs stopped');
 }
 
