@@ -118,6 +118,7 @@ async function upsertTrend(trendData) {
     urgency_level: trendData.urgency_level,
     thumbnail_url: trendData.thumbnail_url || null,
     video_embed_url: trendData.video_embed_url || null,
+    detected_formats: trendData.detected_formats || [],
   };
 
   // Check if this hash already exists so we can report inserted vs updated

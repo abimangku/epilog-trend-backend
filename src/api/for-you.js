@@ -1,7 +1,6 @@
 const express = require('express');
 const logger = require('../logger');
 const { supabase } = require('../database/supabase');
-const { detectFormat } = require('../patterns/formats');
 
 const MOD = 'API:FORYOU';
 const router = express.Router();
@@ -60,7 +59,7 @@ router.get('/', async (req, res) => {
       ...t,
       analysis: analysisMap[t.id] || null,
       brand_fits: fitMap[t.id] || [],
-      detected_formats: detectFormat(t.title, t.hashtags || []),
+      detected_formats: t.detected_formats || [],
       reason: analysisMap[t.id]?.summary || '',
     }));
 

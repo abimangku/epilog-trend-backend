@@ -1,7 +1,7 @@
 const express = require('express');
 const logger = require('../logger');
 const { supabase } = require('../database/supabase');
-const { detectFormat } = require('../patterns/formats');
+
 const { validateDays } = require('../middleware/validate');
 
 const MOD = 'API:PATTERNS';
@@ -18,7 +18,7 @@ router.get('/formats', async (req, res) => {
 
     const { data: trends, error } = await supabase
       .from('trends')
-      .select('title, hashtags')
+      .select('detected_formats')
       .gte('scraped_at', since);
 
     if (error) {
@@ -28,7 +28,7 @@ router.get('/formats', async (req, res) => {
 
     const formatCounts = {};
     for (const trend of trends) {
-      const formats = detectFormat(trend.title, trend.hashtags || []);
+      const formats = trend.detected_formats || [];
       for (const format of formats) {
         formatCounts[format] = (formatCounts[format] || 0) + 1;
       }

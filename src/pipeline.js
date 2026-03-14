@@ -285,6 +285,7 @@ async function runPipeline() {
           urgency_level: urgencyLevel,
           thumbnail_url: video.thumbnail_url || null,
           video_embed_url: video.video_embed_url || null,
+          detected_formats: formats,
         };
 
         // --- Upsert trend to Supabase ---
