@@ -10,6 +10,7 @@
 const axios = require('axios');
 const fs = require('fs');
 const logger = require('../logger');
+const { withRetry } = require('../utils/retry');
 
 const MOD = 'AI_ANALYZER';
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
@@ -26,6 +27,45 @@ function _headers() {
     'HTTP-Referer': 'https://epilog-trend-watcher.com',
     'X-Title': 'Epilog Trend Watcher',
   };
+}
+
+/**
+ * Calls OpenRouter API with retry on 429 and 5xx errors.
+ * @param {object} payload - The request body
+ * @param {number} [timeout=30000] - Request timeout in ms
+ * @returns {Promise<object>} Parsed response data
+ */
+async function callOpenRouter(payload, timeout = 30000) {
+  return withRetry(async () => {
+    const response = await axios.post(OPENROUTER_URL, payload, {
+      headers: _headers(),
+      timeout,
+    });
+    return response.data;
+  }, {
+    retries: 3,
+    baseDelay: 2000,
+    onRetry: (err, attempt) => {
+      const status = err.response?.status || 'unknown';
+      logger.warn(MOD, `OpenRouter retry ${attempt}/3 (HTTP ${status}): ${err.message}`);
+    },
+  });
+}
+
+/**
+ * Safely parses JSON from LLM response content.
+ * Returns null if parsing fails instead of throwing.
+ * @param {string} content - Raw LLM response string
+ * @param {string} context - Description for logging
+ * @returns {object|null}
+ */
+function safeParseJSON(content, context) {
+  try {
+    return JSON.parse(content);
+  } catch (err) {
+    logger.error(MOD, `JSON parse failed for ${context}: ${content.slice(0, 200)}`, err);
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -78,7 +118,7 @@ Respond with this exact JSON:
 Include ALL ${videos.length} videos in your response.`;
 
   try {
-    const response = await axios.post(OPENROUTER_URL, {
+    const data = await callOpenRouter({
       model: MODEL,
       messages: [
         { role: 'system', content: 'You are a trend filtering AI. Respond only in valid JSON.' },
@@ -87,15 +127,12 @@ Include ALL ${videos.length} videos in your response.`;
       temperature: 0.2,
       max_tokens: 3000,
       response_format: { type: 'json_object' },
-    }, {
-      headers: _headers(),
-      timeout: 30000,
-    });
+    }, 30000);
 
-    const content = response.data.choices[0].message.content;
-    const parsed = JSON.parse(content);
+    const content = data.choices[0].message.content;
+    const parsed = safeParseJSON(content, 'trashGate');
 
-    if (!parsed.results || !Array.isArray(parsed.results)) {
+    if (!parsed || !parsed.results || !Array.isArray(parsed.results)) {
       logger.warn(MOD, 'Trash Gate: unexpected response — treating all as signals');
       return videos.map((v) => ({ url: v.url, verdict: 'signal', reason: 'Parse error' }));
     }
@@ -116,11 +153,8 @@ Include ALL ${videos.length} videos in your response.`;
 
     return verdicts;
   } catch (err) {
-    if (err.response) {
-      logger.error(MOD, `Trash Gate API error (${err.response.status})`, err.response.data);
-    } else {
-      logger.error(MOD, 'Trash Gate failed — treating all as signals', err);
-    }
+    const status = err.response?.status || 'unknown';
+    logger.error(MOD, `Trash Gate failed after retries (HTTP ${status}) — treating all as signals`, err);
     return videos.map((v) => ({ url: v.url, verdict: 'signal', reason: 'API error — fail open' }));
   }
 }
@@ -203,7 +237,7 @@ Respond with this JSON:
   }
 
   try {
-    const response = await axios.post(OPENROUTER_URL, {
+    const data = await callOpenRouter({
       model: MODEL,
       messages: [
         {
@@ -215,14 +249,17 @@ Respond with this JSON:
       temperature: 0.3,
       max_tokens: 2000,
       response_format: { type: 'json_object' },
-    }, {
-      headers: _headers(),
-      timeout: 45000,
-    });
+    }, 45000);
 
-    const content = response.data.choices[0].message.content;
-    const parsed = JSON.parse(content);
-    const model = response.data.model || MODEL;
+    const content = data.choices[0].message.content;
+    const parsed = safeParseJSON(content, 'deepAnalysis');
+
+    if (!parsed) {
+      logger.warn(MOD, `Deep analysis: JSON parse failed for ${(video.title || '').slice(0, 50)}`);
+      return null;
+    }
+
+    const model = data.model || MODEL;
 
     logger.log(MOD, `Deep analysis complete: ${(video.title || '').slice(0, 50)}`, { model });
 
@@ -245,11 +282,8 @@ Respond with this JSON:
       model_version: model,
     };
   } catch (err) {
-    if (err.response) {
-      logger.error(MOD, `Deep analysis API error (${err.response.status}): ${(video.title || '').slice(0, 50)}`, err.response.data);
-    } else {
-      logger.error(MOD, `Deep analysis failed: ${(video.title || '').slice(0, 50)}`, err);
-    }
+    const status = err.response?.status || 'unknown';
+    logger.error(MOD, `Deep analysis failed after retries (HTTP ${status}): ${(video.title || '').slice(0, 50)}`, err);
     return null;
   }
 }
@@ -308,7 +342,7 @@ Respond with this JSON:
 }`;
 
   try {
-    const response = await axios.post(OPENROUTER_URL, {
+    const data = await callOpenRouter({
       model: MODEL,
       messages: [
         {
@@ -320,14 +354,17 @@ Respond with this JSON:
       temperature: 0.4,
       max_tokens: 2500,
       response_format: { type: 'json_object' },
-    }, {
-      headers: _headers(),
-      timeout: 45000,
-    });
+    }, 45000);
 
-    const content = response.data.choices[0].message.content;
-    const parsed = JSON.parse(content);
-    const model = response.data.model || MODEL;
+    const content = data.choices[0].message.content;
+    const parsed = safeParseJSON(content, 'crossTrendSynthesis');
+
+    if (!parsed) {
+      logger.warn(MOD, 'Cross-trend synthesis: JSON parse failed');
+      return null;
+    }
+
+    const model = data.model || MODEL;
 
     logger.log(MOD, `Cross-trend synthesis complete (${analyzedTrends.length} trends)`, { model });
 
@@ -345,11 +382,8 @@ Respond with this JSON:
       model_version: model,
     };
   } catch (err) {
-    if (err.response) {
-      logger.error(MOD, `Cross-trend synthesis API error (${err.response.status})`, err.response.data);
-    } else {
-      logger.error(MOD, 'Cross-trend synthesis failed', err);
-    }
+    const status = err.response?.status || 'unknown';
+    logger.error(MOD, `Cross-trend synthesis failed after retries (HTTP ${status})`, err);
     return null;
   }
 }
