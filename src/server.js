@@ -70,7 +70,7 @@ app.use(helmet({
       imgSrc: ["'self'", "data:", "https:", "blob:"],
       connectSrc: ["'self'", process.env.SUPABASE_URL || '', "https://*.supabase.co"],
       frameSrc: ["'self'", "https://www.tiktok.com"],
-      upgradeInsecureRequests: null,
+      ...(process.env.HTTPS_ENABLED !== 'true' ? { upgradeInsecureRequests: null } : {}),
     },
   },
 }));
