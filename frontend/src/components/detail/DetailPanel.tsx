@@ -122,7 +122,7 @@ export function DetailPanel() {
             {trend ? (
               <div className="p-5 space-y-6">
                 {/* Video embed */}
-                <VideoEmbed url={trend.video_embed_url || trend.url} />
+                <VideoEmbed url={trend.video_embed_url || trend.url} thumbnailUrl={trend.thumbnail_storage_url || trend.thumbnail_url} />
 
                 {/* Title + meta */}
                 <div>
