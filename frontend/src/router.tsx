@@ -9,6 +9,7 @@ import { Brand } from './pages/Brand';
 import { Saved } from './pages/Saved';
 import { Patterns } from './pages/Patterns';
 import { Settings } from './pages/Settings';
+import { SystemStatus } from './pages/SystemStatus';
 
 export const router = createBrowserRouter([
   {
@@ -26,6 +27,7 @@ export const router = createBrowserRouter([
       { path: 'saved', element: <ErrorBoundary><Saved /></ErrorBoundary> },
       { path: 'patterns', element: <ErrorBoundary><Patterns /></ErrorBoundary> },
       { path: 'settings', element: <ErrorBoundary><Settings /></ErrorBoundary> },
+      { path: 'system', element: <ErrorBoundary><SystemStatus /></ErrorBoundary> },
     ],
   },
 ]);
