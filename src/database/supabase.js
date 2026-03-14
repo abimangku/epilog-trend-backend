@@ -667,6 +667,73 @@ async function getLatestSnapshot(trendId) {
   }
 }
 
+const PIPELINE_MAX_DURATION_MS = 15 * 60 * 1000; // 15 minutes
+
+/**
+ * Checks if any pipeline run is currently in 'running' status.
+ * @returns {Promise<boolean>}
+ */
+async function isPipelineRunning() {
+  try {
+    const { data, error } = await supabase
+      .from('pipeline_runs')
+      .select('id')
+      .eq('status', 'running')
+      .limit(1)
+      .maybeSingle();
+    if (error) {
+      logger.warn(MOD, `isPipelineRunning check failed: ${error.message}`);
+      return false; // Fail open — allow triggering if we can't check
+    }
+    return !!data;
+  } catch (err) {
+    logger.warn(MOD, `isPipelineRunning error: ${err.message}`);
+    return false;
+  }
+}
+
+/**
+ * Recovers pipeline runs stuck in 'running' state for longer than PIPELINE_MAX_DURATION_MS.
+ * Marks them as 'failed' with a recovery note. Writes pipeline_event for visibility.
+ * @returns {Promise<number>} Number of recovered runs
+ */
+async function recoverOrphanedRuns() {
+  try {
+    const cutoff = new Date(Date.now() - PIPELINE_MAX_DURATION_MS).toISOString();
+    const { data: orphaned, error: fetchErr } = await supabase
+      .from('pipeline_runs')
+      .select('id, started_at')
+      .eq('status', 'running')
+      .lt('started_at', cutoff);
+
+    if (fetchErr || !orphaned || orphaned.length === 0) return 0;
+
+    for (const run of orphaned) {
+      const { error: updateErr } = await supabase
+        .from('pipeline_runs')
+        .update({
+          status: 'failed',
+          completed_at: new Date().toISOString(),
+        })
+        .eq('id', run.id);
+
+      if (!updateErr) {
+        logger.warn(MOD, `Recovered orphaned pipeline run ${run.id} (started ${run.started_at})`);
+        await createPipelineEvent(
+          run.id,
+          'pipeline_recovered',
+          'warning',
+          `Pipeline run recovered after crash/timeout (started ${run.started_at})`
+        );
+      }
+    }
+    return orphaned.length;
+  } catch (err) {
+    logger.warn(MOD, `recoverOrphanedRuns error: ${err.message}`);
+    return 0;
+  }
+}
+
 module.exports = {
   supabase,
   generateTrendHash,
@@ -688,4 +755,6 @@ module.exports = {
   updateScheduleConfig,
   acknowledgePipelineEvents,
   getLatestSnapshot,
+  isPipelineRunning,
+  recoverOrphanedRuns,
 };

@@ -3,7 +3,7 @@ require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const logger = require('./logger');
-const { testConnection, supabase, acknowledgePipelineEvents } = require('./database/supabase');
+const { testConnection, supabase, acknowledgePipelineEvents, isPipelineRunning, recoverOrphanedRuns } = require('./database/supabase');
 const { runPipelineOnce } = require('./pipeline');
 const { validateEnv } = require('./config/validate-env');
 const authRouter = require('./api/auth');
@@ -31,15 +31,6 @@ process.on('uncaughtException', (err) => {
   // Let the error propagate — PM2 handles restart. Do not call process.exit()
   // per project convention (CLAUDE.md bans process.exit).
 });
-
-// ---------------------------------------------------------------------------
-// Pipeline run state — shared across endpoints
-// ---------------------------------------------------------------------------
-
-let pipelineRunning = false;
-let lastRun = null;        // ISO timestamp
-let lastRunDuration = 0;   // milliseconds
-let lastRunResult = null;  // { new, updated, errors }
 
 // ---------------------------------------------------------------------------
 // Auth middleware
@@ -79,6 +70,7 @@ app.use(helmet({
       imgSrc: ["'self'", "data:", "https:", "blob:"],
       connectSrc: ["'self'", process.env.SUPABASE_URL || '', "https://*.supabase.co"],
       frameSrc: ["'self'", "https://www.tiktok.com"],
+      upgradeInsecureRequests: null,
     },
   },
 }));
@@ -121,6 +113,7 @@ app.post('/api/events/acknowledge', async (req, res) => {
 // ---------------------------------------------------------------------------
 
 app.get('/health', async (req, res) => {
+  const pipelineRunning = await isPipelineRunning();
   const supabaseOk = await testConnection();
 
   // Get trends count for status reporting
@@ -183,31 +176,23 @@ app.get('/health', async (req, res) => {
 // POST /trigger/scrape
 // ---------------------------------------------------------------------------
 
-app.post('/trigger/scrape', triggerLimiter, requireAuth, (req, res) => {
-  if (pipelineRunning) {
-    return res.status(409).json({
-      error: 'Scrape already running',
-      startedAt: lastRun,
-    });
+app.post('/trigger/scrape', triggerLimiter, requireAuth, async (req, res) => {
+  // Recover any orphaned runs before checking
+  await recoverOrphanedRuns();
+
+  const running = await isPipelineRunning();
+  if (running) {
+    return res.status(409).json({ error: 'Scrape already running' });
   }
 
   // Trigger pipeline asynchronously — respond immediately
-  pipelineRunning = true;
   const triggerTime = new Date().toISOString();
 
-  // Fire and forget — track state via module-level vars
   (async () => {
-    const start = Date.now();
     try {
-      const result = await runPipelineOnce();
-      lastRunResult = result;
+      await runPipelineOnce();
     } catch (err) {
       logger.error(MOD, 'Pipeline trigger failed', err);
-      lastRunResult = { new: 0, updated: 0, errors: 1 };
-    } finally {
-      lastRunDuration = Date.now() - start;
-      lastRun = new Date().toISOString();
-      pipelineRunning = false;
     }
   })();
 
@@ -221,13 +206,35 @@ app.post('/trigger/scrape', triggerLimiter, requireAuth, (req, res) => {
 // GET /status/pipeline
 // ---------------------------------------------------------------------------
 
-app.get('/status/pipeline', (req, res) => {
-  res.json({
-    running: pipelineRunning,
-    lastRun,
-    lastRunDuration,
-    lastRunResult,
-  });
+app.get('/status/pipeline', async (req, res) => {
+  try {
+    const running = await isPipelineRunning();
+
+    const { data: latest } = await supabase
+      .from('pipeline_runs')
+      .select('started_at, completed_at, status, videos_scraped, videos_analyzed, tokens_used, estimated_cost_usd')
+      .order('started_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    res.json({
+      running,
+      lastRun: latest?.completed_at || latest?.started_at || null,
+      lastRunDuration: latest?.completed_at && latest?.started_at
+        ? new Date(latest.completed_at).getTime() - new Date(latest.started_at).getTime()
+        : 0,
+      lastRunResult: latest ? {
+        status: latest.status,
+        videos_scraped: latest.videos_scraped,
+        videos_analyzed: latest.videos_analyzed,
+        tokens_used: latest.tokens_used,
+        estimated_cost_usd: latest.estimated_cost_usd,
+      } : null,
+    });
+  } catch (err) {
+    logger.error(MOD, 'Status pipeline error', err);
+    res.status(500).json({ error: 'Failed to get pipeline status' });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -277,6 +284,12 @@ async function start() {
     logger.log(MOD, 'Supabase connection verified');
   } else {
     logger.warn(MOD, 'Supabase unreachable at startup — will retry on requests');
+  }
+
+  // Recover any orphaned pipeline runs from previous crashes
+  const recovered = await recoverOrphanedRuns();
+  if (recovered > 0) {
+    logger.warn(MOD, `Recovered ${recovered} orphaned pipeline run(s) from previous crash`);
   }
 
   // Log auth config (length, not value)
@@ -332,9 +345,11 @@ async function start() {
     }
 
     // Log warning if pipeline is mid-run during shutdown
-    if (pipelineRunning) {
-      logger.warn(MOD, 'Pipeline still running during shutdown — browser will be force-closed');
-    }
+    isPipelineRunning().then((running) => {
+      if (running) {
+        logger.warn(MOD, 'Pipeline still running during shutdown — browser will be force-closed');
+      }
+    }).catch(() => {});
 
     // Give in-flight requests 5 seconds to complete, then force exit
     setTimeout(() => {
