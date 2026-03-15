@@ -25,10 +25,14 @@ const {
   calculateVelocityScore,
   calculateMomentum,
   calculateShareRatio,
+  calculateRecencyMultiplier,
+  calculateAcceleration,
+  classifyCreatorTier,
 } = require('./scoring/engagement');
 const {
   calculateReplicationScore,
   getReplicationCount,
+  calculateSaturationIndex,
 } = require('./scoring/replication');
 const {
   classifyTrend,
@@ -55,6 +59,7 @@ const {
   updateTrendThumbnail,
   upsertAudioTrends,
   getLatestSnapshot,
+  updateTrendSaturation,
 } = require('./database/supabase');
 const { trashGate, deepAnalysis, crossTrendSynthesis, resetTokenCounter: resetAnalyzerTokens, getTokenUsage: getAnalyzerTokens } = require('./ai/analyzer');
 const { scoreBrandFit, resetTokenCounter: resetBrandFitTokens, getTokenUsage: getBrandFitTokens } = require('./ai/brand-fit');
@@ -81,12 +86,12 @@ function momentumToNumber(momentum) {
  * Returns null if the trend does not exist yet.
  *
  * @param {string} hash - SHA256 hash of platform|url|title
- * @returns {Promise<{id: string, scraped_at: string}|null>}
+ * @returns {Promise<{id: string, scraped_at: string, velocity_score: number}|null>}
  */
 async function findExistingTrend(hash) {
   const { data } = await supabase
     .from('trends')
-    .select('id, scraped_at')
+    .select('id, scraped_at, velocity_score')
     .eq('hash', hash)
     .maybeSingle();
   return data || null;
@@ -220,6 +225,10 @@ async function runPipeline() {
           ? calculateVelocityScore(snapshots, previousSnapshot, currentMetrics)
           : Math.min(engagementRate, 100);
 
+        // --- Acceleration (rate of change of velocity) ---
+        const previousVelocity = existing ? (existing.velocity_score || 0) : 0;
+        const acceleration = calculateAcceleration(velocityScore, previousVelocity);
+
         // --- Momentum ---
         const momentum = calculateMomentum(snapshots);
 
@@ -268,7 +277,7 @@ async function runPipeline() {
           title: video.title,
           url: video.url,
           author: video.author,
-          author_tier: video.author_tier,
+          author_tier: classifyCreatorTier(video.follower_count),
           views: video.views,
           likes: video.likes,
           comments: video.comments,
@@ -280,6 +289,7 @@ async function runPipeline() {
           engagement_rate: Math.round(engagementRate * 100) / 100,
           share_ratio: Math.round(shareRatio * 100) / 100,
           velocity_score: Math.round(velocityScore * 100) / 100,
+          acceleration,
           replication_count: replicationCount,
           lifecycle_stage: lifecycleStage,
           momentum: momentumToNumber(momentum),
@@ -346,6 +356,30 @@ async function runPipeline() {
     }
 
     // -----------------------------------------------------------------------
+    // Step 3c — Batch saturation index (requires all videos scored first)
+    // -----------------------------------------------------------------------
+    logger.log(MOD, `--- Step 3c: Batch saturation index (${enrichedVideos.length} videos) ---`);
+
+    for (const ev of enrichedVideos) {
+      const saturationIndex = calculateSaturationIndex(
+        ev.enrichedTrend.audio_id,
+        ev.enrichedTrend.hashtags,
+        enrichedVideos.map(v => ({
+          audio_id: v.enrichedTrend.audio_id,
+          author: v.enrichedTrend.author,
+          author_tier: v.enrichedTrend.author_tier,
+          hashtags: v.enrichedTrend.hashtags,
+        }))
+      );
+      ev.enrichedTrend.saturation_index = saturationIndex;
+
+      // Write saturation back to DB
+      if (ev.trend_id) {
+        await updateTrendSaturation(ev.trend_id, saturationIndex);
+      }
+    }
+
+    // -----------------------------------------------------------------------
     // Step 4 — Phase 1: Trash Gate (batch LLM filter)
     // -----------------------------------------------------------------------
     logger.log(MOD, `--- Phase 1: Trash Gate (${enrichedVideos.length} videos) ---`);
@@ -354,6 +388,9 @@ async function runPipeline() {
       ...ev.video,
       engagement_rate: ev.enrichedTrend.engagement_rate,
       share_ratio: ev.enrichedTrend.share_ratio,
+      acceleration: ev.enrichedTrend.acceleration,
+      author_tier: ev.enrichedTrend.author_tier,
+      saturation_index: ev.enrichedTrend.saturation_index,
     })));
     const verdictMap = new Map(verdicts.map((v) => [v.url, v]));
 
