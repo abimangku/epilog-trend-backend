@@ -15,6 +15,9 @@ Clients: Godrej Indonesia brands — Stella (air freshener), HIT Kecoa (insectic
 - **Scheduler:** node-cron aligned to WIB (UTC+7) peak hours
 - **Server:** Express (health check + webhook trigger endpoint only)
 - **Notifications:** (Slack integration removed)
+- **Tier 1 Math Layer:** Acceleration, creator tier classification, saturation index — computed on ALL scraped videos before Trash Gate, zero LLM cost
+- **Tier 2 LLM Dimensions:** Emotion tagging, niche-to-mainstream trajectory (piggybacked on Deep Analysis), executional feasibility (piggybacked on Brand Fit)
+- **Scrape Volume:** 60 videos per run (with follower count extraction for creator tier)
 
 ## Folder Structure
 
