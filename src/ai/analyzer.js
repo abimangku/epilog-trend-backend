@@ -284,7 +284,13 @@ Now analyze the trend above with the same depth and specificity. Respond with th
   "brand_safety_score": 0 to 100,
   "replication_signal_score": 0 to 100,
   "trash_check": { "passed": true/false, "reasons": ["reason if failed"] },
-  "recommended_action": "One of: 'Act immediately', 'Prepare content', 'Monitor closely', 'Watch passively', 'Skip'"
+  "recommended_action": "One of: 'Act immediately', 'Prepare content', 'Monitor closely', 'Watch passively', 'Skip'",
+  "dominant_emotion": "One of: humor, relatability, aspiration, nostalgia, outrage, wholesomeness, fear, curiosity, pride — the primary emotion driving engagement",
+  "emotion_intensity": 0 to 100,
+  "emotion_notes": "1 sentence explaining why this emotion drives engagement for this content",
+  "niche_origin": "The community/subculture where this trend started (e.g., skintok, anak kos humor, ibu-ibu receh, gym tok, beauty tok)",
+  "mainstream_progress": "One of: niche_only, crossing_over, early_mainstream, fully_mainstream",
+  "mainstream_notes": "1 sentence on where it sits on the niche-to-mainstream spectrum and how fast it's moving"
 }`;
 
   // Build message content — multimodal if screenshot available
@@ -352,6 +358,12 @@ Now analyze the trend above with the same depth and specificity. Respond with th
       cultural_context: parsed.cultural_context || '',
       virality_trajectory: parsed.virality_trajectory || 'unknown',
       trash_check: parsed.trash_check || { passed: true, reasons: [] },
+      dominant_emotion: (parsed.dominant_emotion || '').toLowerCase(),
+      emotion_intensity: parsed.emotion_intensity || 0,
+      emotion_notes: parsed.emotion_notes || '',
+      niche_origin: parsed.niche_origin || '',
+      mainstream_progress: (parsed.mainstream_progress || '').toLowerCase(),
+      mainstream_notes: parsed.mainstream_notes || '',
       model_version: model,
       analysis_version: ANALYSIS_VERSION,
     };
