@@ -119,6 +119,8 @@ async function upsertTrend(trendData) {
     thumbnail_url: trendData.thumbnail_url || null,
     video_embed_url: trendData.video_embed_url || null,
     detected_formats: trendData.detected_formats || [],
+    acceleration: trendData.acceleration || 0,
+    saturation_index: trendData.saturation_index || 0,
   };
 
   // Check if this hash already exists so we can report inserted vs updated
@@ -387,9 +389,17 @@ async function insertCrossTrendSynthesis(synthesis) {
 async function upsertBrandFits(brandFits) {
   if (!brandFits || brandFits.length === 0) return [];
 
+  const rows = brandFits.map((fit) => ({
+    ...fit,
+    production_difficulty: fit.production_difficulty || 'medium',
+    production_requirements: fit.production_requirements || null,
+    estimated_production_hours: fit.estimated_production_hours || null,
+    requires_original_audio: fit.requires_original_audio || false,
+  }));
+
   const { data, error: upsertError } = await retrySupabase(
-    `upsert ${brandFits.length} brand fits`,
-    () => supabase.from('client_brand_fit').upsert(brandFits, { onConflict: 'trend_id,brand_name' }).select()
+    `upsert ${rows.length} brand fits`,
+    () => supabase.from('client_brand_fit').upsert(rows, { onConflict: 'trend_id,brand_name' }).select()
   );
 
   if (upsertError) {
@@ -735,6 +745,25 @@ async function recoverOrphanedRuns() {
   }
 }
 
+/**
+ * Updates the saturation_index for a trend after the batch saturation pass.
+ * Called in Step 3c after all videos are scored.
+ *
+ * @param {string} trendId - UUID of the trend
+ * @param {number} saturationIndex - Saturation value 0..1
+ * @returns {Promise<void>}
+ */
+async function updateTrendSaturation(trendId, saturationIndex) {
+  const { error } = await supabase
+    .from('trends')
+    .update({ saturation_index: saturationIndex })
+    .eq('id', trendId);
+
+  if (error) {
+    logger.error(MOD, `Failed to update saturation_index for trend ${trendId}`, error);
+  }
+}
+
 module.exports = {
   supabase,
   generateTrendHash,
@@ -758,4 +787,5 @@ module.exports = {
   getLatestSnapshot,
   isPipelineRunning,
   recoverOrphanedRuns,
+  updateTrendSaturation,
 };
