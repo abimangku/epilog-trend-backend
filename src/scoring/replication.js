@@ -105,7 +105,51 @@ function getReplicationCount(audioId, hashtags, replicationData) {
   return Math.max(audioCount, maxHashtagCount);
 }
 
+/**
+ * Calculates saturation index — ratio of big creators in a trend's replicator set.
+ * High saturation = big creators already jumped in (you're late).
+ * Low saturation = small creators leading (early signal, high value).
+ *
+ * Unknown-tier creators are excluded from both numerator and denominator.
+ *
+ * @param {string} trendAudioId - The trend's audio_id
+ * @param {string[]} trendHashtags - The trend's hashtags
+ * @param {Array<{audio_id: string, author: string, author_tier: string, hashtags: string[]}>} allVideos
+ *   All videos in the current batch, each with author_tier set.
+ * @returns {number} Saturation index 0..1 (0 = no big creators, 1 = all big creators)
+ */
+function calculateSaturationIndex(trendAudioId, trendHashtags, allVideos) {
+  if (!allVideos || allVideos.length <= 1) return 0;
+
+  const normalizedTags = (trendHashtags || []).map(t => t.toLowerCase().trim());
+
+  // Find replicators: other videos sharing the same audio OR overlapping hashtags
+  const replicators = allVideos.filter(v => {
+    // Audio match
+    if (trendAudioId && v.audio_id === trendAudioId) return true;
+    // Hashtag overlap (at least 1 shared tag)
+    if (normalizedTags.length > 0 && v.hashtags && v.hashtags.length > 0) {
+      const vTags = v.hashtags.map(t => t.toLowerCase().trim());
+      return normalizedTags.some(tag => vTags.includes(tag));
+    }
+    return false;
+  });
+
+  // Need at least 2 replicators (including the trend itself) to compute meaningful saturation
+  if (replicators.length <= 1) return 0;
+
+  // Exclude unknown-tier creators from saturation math
+  const knownReplicators = replicators.filter(v => v.author_tier && v.author_tier !== 'unknown');
+  if (knownReplicators.length === 0) return 0;
+
+  const BIG_TIERS = new Set(['macro', 'mega']);
+  const bigCount = knownReplicators.filter(v => BIG_TIERS.has(v.author_tier)).length;
+
+  return Math.round((bigCount / knownReplicators.length) * 10000) / 10000;
+}
+
 module.exports = {
   calculateReplicationScore,
   getReplicationCount,
+  calculateSaturationIndex,
 };

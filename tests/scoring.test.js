@@ -11,6 +11,7 @@ const {
 const {
   calculateReplicationScore,
   getReplicationCount,
+  calculateSaturationIndex,
 } = require('../src/scoring/replication');
 
 const {
@@ -246,6 +247,69 @@ describe('getReplicationCount', () => {
       hashtagClusters: new Map(),
     };
     expect(getReplicationCount(null, ['#fyp'], data)).toBe(0);
+  });
+});
+
+describe('calculateSaturationIndex', () => {
+  test('returns 0 when no replicators found', () => {
+    const allVideos = [
+      { audio_id: 'a1', author: 'u1', author_tier: 'micro', hashtags: ['#test'] },
+    ];
+    expect(calculateSaturationIndex('a99', ['#other'], allVideos)).toBe(0);
+  });
+
+  test('returns 0 when all replicators are unknown tier', () => {
+    const allVideos = [
+      { audio_id: 'a1', author: 'u1', author_tier: 'unknown', hashtags: ['#fyp'] },
+      { audio_id: 'a1', author: 'u2', author_tier: 'unknown', hashtags: ['#fyp'] },
+    ];
+    expect(calculateSaturationIndex('a1', ['#fyp'], allVideos)).toBe(0);
+  });
+
+  test('low saturation when small creators dominate', () => {
+    const allVideos = [
+      { audio_id: 'a1', author: 'u1', author_tier: 'nano', hashtags: ['#dance'] },
+      { audio_id: 'a1', author: 'u2', author_tier: 'micro', hashtags: ['#dance'] },
+      { audio_id: 'a1', author: 'u3', author_tier: 'nano', hashtags: ['#dance'] },
+      { audio_id: 'a1', author: 'u4', author_tier: 'mid', hashtags: ['#dance'] },
+    ];
+    expect(calculateSaturationIndex('a1', ['#dance'], allVideos)).toBe(0);
+  });
+
+  test('high saturation when big creators dominate', () => {
+    const allVideos = [
+      { audio_id: 'a1', author: 'u1', author_tier: 'macro', hashtags: ['#trend'] },
+      { audio_id: 'a1', author: 'u2', author_tier: 'mega', hashtags: ['#trend'] },
+      { audio_id: 'a1', author: 'u3', author_tier: 'macro', hashtags: ['#trend'] },
+      { audio_id: 'a1', author: 'u4', author_tier: 'nano', hashtags: ['#trend'] },
+    ];
+    expect(calculateSaturationIndex('a1', ['#trend'], allVideos)).toBe(0.75);
+  });
+
+  test('mixed saturation with hashtag-based matching', () => {
+    const allVideos = [
+      { audio_id: 'a1', author: 'u1', author_tier: 'micro', hashtags: ['#cooking', '#fyp'] },
+      { audio_id: 'a2', author: 'u2', author_tier: 'macro', hashtags: ['#cooking', '#viral'] },
+      { audio_id: 'a3', author: 'u3', author_tier: 'nano', hashtags: ['#cooking', '#fyp'] },
+    ];
+    const result = calculateSaturationIndex('a99', ['#cooking', '#fyp'], allVideos);
+    expect(result).toBeCloseTo(0.333, 2);
+  });
+
+  test('excludes unknown-tier from denominator', () => {
+    const allVideos = [
+      { audio_id: 'a1', author: 'u1', author_tier: 'macro', hashtags: ['#x'] },
+      { audio_id: 'a1', author: 'u2', author_tier: 'unknown', hashtags: ['#x'] },
+      { audio_id: 'a1', author: 'u3', author_tier: 'nano', hashtags: ['#x'] },
+    ];
+    expect(calculateSaturationIndex('a1', ['#x'], allVideos)).toBe(0.5);
+  });
+
+  test('returns 0 for single-video batch (no replicators possible)', () => {
+    const allVideos = [
+      { audio_id: 'a1', author: 'u1', author_tier: 'nano', hashtags: ['#solo'] },
+    ];
+    expect(calculateSaturationIndex('a1', ['#solo'], allVideos)).toBe(0);
   });
 });
 
