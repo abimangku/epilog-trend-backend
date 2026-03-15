@@ -118,7 +118,7 @@ async function trashGate(videos) {
 
   const videoList = videos.map((v, i) => {
     const shareRatio = v.views > 0 ? (((v.shares || 0) / v.views) * 100).toFixed(2) : 'N/A';
-    return `[${i}] @${v.author} — "${(v.title || '').slice(0, 100)}" | Views: ${(v.views || 0).toLocaleString()} Likes: ${v.likes} Comments: ${v.comments} Shares: ${v.shares} Bookmarks: ${v.bookmarks || 0} | Engagement Rate: ${v.engagement_rate || 'N/A'}% | Share Ratio: ${shareRatio}% | Hashtags: ${(v.hashtags || []).join(', ')} | Audio: ${v.audio_title || 'unknown'}`;
+    return `[${i}] @${v.author} — "${(v.title || '').slice(0, 100)}" | Views: ${(v.views || 0).toLocaleString()} Likes: ${v.likes} Comments: ${v.comments} Shares: ${v.shares} Bookmarks: ${v.bookmarks || 0} | Engagement Rate: ${v.engagement_rate || 'N/A'}% | Share Ratio: ${shareRatio}% | Hashtags: ${(v.hashtags || []).join(', ')} | Audio: ${v.audio_title || 'unknown'} | Acceleration: ${v.acceleration != null ? (v.acceleration > 0 ? '+' : '') + v.acceleration : 'N/A'} | Creator Tier: ${v.author_tier || 'unknown'} | Saturation: ${v.saturation_index != null ? v.saturation_index.toFixed(2) : 'N/A'}`;
   }).join('\n');
 
   const prompt = `You are a TikTok trend filter for Epilog Creative, a digital marketing agency in Jakarta, Indonesia. Your clients are Godrej Indonesia brands (Stella air freshener, HIT Kecoa insecticide, NYU hair color).
@@ -133,6 +133,13 @@ USE THE ENGAGEMENT DATA to inform your decision:
 - High bookmark count relative to likes = evergreen/reference content, lean toward SIGNAL
 - Very low engagement across all metrics = likely NOISE
 - But don't reject low-view content from small creators if the format is interesting — small creators with novel formats are STRONG signals
+
+USE THE TIER 1 INTELLIGENCE SCORES:
+- Acceleration > 0 = velocity is INCREASING — this trend is at an inflection point. Strong lean toward SIGNAL even if absolute numbers are low.
+- Acceleration < 0 = velocity is SLOWING — the engine is cooling. Lean NOISE unless engagement is still very high.
+- Creator Tier "nano"/"micro" with high engagement = potential breakout creator. Lean SIGNAL — small creators with novel formats are the strongest early signals.
+- Saturation < 0.3 = big creators haven't jumped in yet. If replication is happening among small creators, this is an EARLY signal — lean SIGNAL.
+- Saturation > 0.6 = trend is already mainstream. Big creators dominate. Only mark as SIGNAL if there's a unique brand angle remaining.
 
 Be aggressive — only 30-40% should survive as SIGNAL. We're looking for trends with marketing potential for Indonesian FMCG brands.
 
