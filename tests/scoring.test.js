@@ -4,6 +4,8 @@ const {
   calculateMomentum,
   calculateWeightedEngagementRate,
   calculateShareRatio,
+  calculateAcceleration,
+  classifyCreatorTier,
 } = require('../src/scoring/engagement');
 
 const {
@@ -707,5 +709,79 @@ describe('calculateVelocityScore with previousSnapshot', () => {
     };
     const score = calculateVelocityScore([], previousSnapshot, currentMetrics);
     expect(score).toBeGreaterThan(0);
+  });
+});
+
+describe('calculateAcceleration', () => {
+  test('positive acceleration when velocity increases', () => {
+    expect(calculateAcceleration(60, 40)).toBe(20);
+  });
+
+  test('negative acceleration when velocity decreases', () => {
+    expect(calculateAcceleration(30, 50)).toBe(-20);
+  });
+
+  test('zero acceleration when velocity unchanged', () => {
+    expect(calculateAcceleration(45, 45)).toBe(0);
+  });
+
+  test('clamped to +100 maximum', () => {
+    expect(calculateAcceleration(100, 0)).toBe(100);
+  });
+
+  test('clamped to -100 minimum', () => {
+    expect(calculateAcceleration(0, 100)).toBe(-100);
+  });
+
+  test('handles null/undefined previousVelocity as 0', () => {
+    expect(calculateAcceleration(50, null)).toBe(50);
+    expect(calculateAcceleration(50, undefined)).toBe(50);
+  });
+
+  test('handles null/undefined currentVelocity as 0', () => {
+    expect(calculateAcceleration(null, 30)).toBe(-30);
+    expect(calculateAcceleration(undefined, 30)).toBe(-30);
+  });
+});
+
+describe('classifyCreatorTier', () => {
+  test('returns unknown for 0', () => {
+    expect(classifyCreatorTier(0)).toBe('unknown');
+  });
+
+  test('returns unknown for null/undefined', () => {
+    expect(classifyCreatorTier(null)).toBe('unknown');
+    expect(classifyCreatorTier(undefined)).toBe('unknown');
+  });
+
+  test('returns nano for 1-9999', () => {
+    expect(classifyCreatorTier(1)).toBe('nano');
+    expect(classifyCreatorTier(5000)).toBe('nano');
+    expect(classifyCreatorTier(9999)).toBe('nano');
+  });
+
+  test('returns micro for 10000-99999', () => {
+    expect(classifyCreatorTier(10000)).toBe('micro');
+    expect(classifyCreatorTier(50000)).toBe('micro');
+    expect(classifyCreatorTier(99999)).toBe('micro');
+  });
+
+  test('returns mid for 100000-499999', () => {
+    expect(classifyCreatorTier(100000)).toBe('mid');
+    expect(classifyCreatorTier(499999)).toBe('mid');
+  });
+
+  test('returns macro for 500000-999999', () => {
+    expect(classifyCreatorTier(500000)).toBe('macro');
+    expect(classifyCreatorTier(999999)).toBe('macro');
+  });
+
+  test('returns mega for 1000000+', () => {
+    expect(classifyCreatorTier(1000000)).toBe('mega');
+    expect(classifyCreatorTier(50000000)).toBe('mega');
+  });
+
+  test('handles negative numbers as unknown', () => {
+    expect(classifyCreatorTier(-100)).toBe('unknown');
   });
 });

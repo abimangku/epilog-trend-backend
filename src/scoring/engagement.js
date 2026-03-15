@@ -259,6 +259,36 @@ function calculateRecencyMultiplier(scrapedAt, now) {
   return Math.pow(0.5, ageHours / RECENCY_HALF_LIFE_HOURS);
 }
 
+/**
+ * Calculates acceleration — the rate of change of velocity.
+ * Positive = velocity increasing (inflection point), negative = cooling.
+ *
+ * @param {number|null} currentVelocity - Current run's velocity score (0-100)
+ * @param {number|null} previousVelocity - Previous run's velocity score (0-100)
+ * @returns {number} Acceleration clamped to -100..+100
+ */
+function calculateAcceleration(currentVelocity, previousVelocity) {
+  const curr = currentVelocity || 0;
+  const prev = previousVelocity || 0;
+  const delta = curr - prev;
+  return Math.max(-100, Math.min(100, delta));
+}
+
+/**
+ * Classifies a creator into a tier based on follower count.
+ *
+ * @param {number|null|undefined} followerCount
+ * @returns {'unknown' | 'nano' | 'micro' | 'mid' | 'macro' | 'mega'}
+ */
+function classifyCreatorTier(followerCount) {
+  if (!followerCount || followerCount <= 0) return 'unknown';
+  if (followerCount < 10000) return 'nano';
+  if (followerCount < 100000) return 'micro';
+  if (followerCount < 500000) return 'mid';
+  if (followerCount < 1000000) return 'macro';
+  return 'mega';
+}
+
 module.exports = {
   calculateEngagementRate,
   calculateVelocityScore,
@@ -266,5 +296,7 @@ module.exports = {
   calculateWeightedEngagementRate,
   calculateShareRatio,
   calculateRecencyMultiplier,
+  calculateAcceleration,
+  classifyCreatorTier,
   RECENCY_HALF_LIFE_HOURS,
 };
