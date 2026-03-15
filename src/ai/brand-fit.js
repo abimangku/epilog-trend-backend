@@ -188,6 +188,10 @@ async function scoreBrandFit(trend, trendId, analysis, screenshotPath) {
       brand_entry_confidence: b.brand_entry_confidence || 0,
       hours_to_act: b.hours_to_act || 72,
       brief_generated: b.brief_generated || null,
+      production_difficulty: b.production_difficulty || 'medium',
+      production_requirements: b.production_requirements || '',
+      estimated_production_hours: b.estimated_production_hours || null,
+      requires_original_audio: b.requires_original_audio || false,
     }));
 
     logger.log(MOD, `Brand fit scored: ${(trend.title || '').slice(0, 50)}`, {
@@ -225,6 +229,8 @@ AI DEEP ANALYSIS (from Phase 2):
 - Replication Signal: ${analysis.replication_signal_score || 'N/A'}/100
 - Brand Safety: ${analysis.brand_safety_score || 'N/A'}/100
 - Key Insights: ${(analysis.key_insights || []).join('; ')}
+- Dominant Emotion: ${analysis.dominant_emotion || 'N/A'} (intensity: ${analysis.emotion_intensity || 'N/A'}/100)
+- Niche Origin: ${analysis.niche_origin || 'N/A'} → ${analysis.mainstream_progress || 'N/A'}
 `;
   }
 
@@ -266,7 +272,11 @@ Respond with this exact JSON structure:
       "urgency_level": "watch" or "consider" or "act_now",
       "brand_entry_confidence": 0 to 100,
       "hours_to_act": number of hours before trend becomes stale,
-      "brief_generated": "One-paragraph creative brief for the content team"
+      "brief_generated": "One-paragraph creative brief for the content team",
+      "production_difficulty": "easy" or "medium" or "hard",
+      "production_requirements": "What the content team needs to execute this — specific talent, equipment, location, time estimate. Be practical.",
+      "estimated_production_hours": number of hours from concept to final edit,
+      "requires_original_audio": true or false — does this need custom audio or can it use trending sound?
     },
     {
       "brand_name": "HIT Kecoa",
