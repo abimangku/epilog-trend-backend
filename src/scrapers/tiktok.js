@@ -60,7 +60,7 @@ const SELECTORS = {
 // Configuration
 // ---------------------------------------------------------------------------
 const CONFIG = {
-  maxVideos: 40,
+  maxVideos: 60,
   timeoutMs: 90000,
   pageLoadWaitMs: 8000,
   screenshotDir: path.join(process.cwd(), 'screenshots'),
@@ -399,6 +399,7 @@ async function scrapeOnce(options = {}) {
           video_embed_url: jsMatch && jsMatch.videoId
             ? `https://www.tiktok.com/embed/v2/${jsMatch.videoId}`
             : null,
+          follower_count: jsMatch ? (jsMatch.followerCount || 0) : 0,
         };
 
         videos.push(video);
@@ -518,6 +519,7 @@ async function _extractVideoItemsFromJsState(page) {
                 shares: (item.stats && item.stats.shareCount) || 0,
                 bookmarks: (item.stats && item.stats.collectCount) || 0,
                 coverUrl: (item.video && (item.video.originCover || item.video.cover || item.video.dynamicCover)) || null,
+                followerCount: (item.authorStats && item.authorStats.followerCount) || (item.author && item.author.fans) || 0,
               });
             }
           }
@@ -550,6 +552,7 @@ async function _extractVideoItemsFromJsState(page) {
                   shares: (item.stats && item.stats.shareCount) || 0,
                   bookmarks: parseInt(item.stats && item.stats.collectCount, 10) || 0,
                   coverUrl: (item.video && (item.video.originCover || item.video.cover || item.video.dynamicCover)) || null,
+                  followerCount: (item.authorStats && item.authorStats.followerCount) || (item.author && item.author.fans) || 0,
                 });
               }
             }
@@ -591,6 +594,7 @@ function _normalizeApiItem(item) {
     shares: (item.stats && item.stats.shareCount) || 0,
     bookmarks: parseInt((item.stats && item.stats.collectCount) || 0, 10) || 0,
     coverUrl: video.originCover || video.cover || video.dynamicCover || null,
+    followerCount: (item.authorStats && item.authorStats.followerCount) || (item.author && item.author.fans) || 0,
   };
 }
 
